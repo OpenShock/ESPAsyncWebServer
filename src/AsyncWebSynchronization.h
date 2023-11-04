@@ -8,25 +8,22 @@
 #ifdef ESP32
 
 // This is the ESP32 version of the Sync Lock, using the FreeRTOS Semaphore
-class AsyncWebLock
-{
+class AsyncWebLock {
 private:
   SemaphoreHandle_t _lock;
-  mutable void *_lockedBy;
+  mutable void* _lockedBy;
 
 public:
   AsyncWebLock() {
-    _lock = xSemaphoreCreateBinary();
+    _lock     = xSemaphoreCreateBinary();
     _lockedBy = NULL;
     xSemaphoreGive(_lock);
   }
 
-  ~AsyncWebLock() {
-    vSemaphoreDelete(_lock);
-  }
+  ~AsyncWebLock() { vSemaphoreDelete(_lock); }
 
   bool lock() const {
-    extern void *pxCurrentTCB;
+    extern void* pxCurrentTCB;
     if (_lockedBy != pxCurrentTCB) {
       xSemaphoreTake(_lock, portMAX_DELAY);
       _lockedBy = pxCurrentTCB;
@@ -44,32 +41,24 @@ public:
 #else
 
 // This is the 8266 version of the Sync Lock which is currently unimplemented
-class AsyncWebLock
-{
-
+class AsyncWebLock {
 public:
-  AsyncWebLock() {
-  }
+  AsyncWebLock() { }
 
-  ~AsyncWebLock() {
-  }
+  ~AsyncWebLock() { }
 
-  bool lock() const {
-    return false;
-  }
+  bool lock() const { return false; }
 
-  void unlock() const {
-  }
+  void unlock() const { }
 };
 #endif
 
-class AsyncWebLockGuard
-{
+class AsyncWebLockGuard {
 private:
-  const AsyncWebLock *_lock;
+  const AsyncWebLock* _lock;
 
 public:
-  AsyncWebLockGuard(const AsyncWebLock &l) {
+  AsyncWebLockGuard(const AsyncWebLock& l) {
     if (l.lock()) {
       _lock = &l;
     } else {
@@ -84,4 +73,4 @@ public:
   }
 };
 
-#endif // ASYNCWEBSYNCHRONIZATION_H_
+#endif  // ASYNCWEBSYNCHRONIZATION_H_
