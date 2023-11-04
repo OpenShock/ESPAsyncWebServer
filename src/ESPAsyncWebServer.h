@@ -28,15 +28,12 @@
 
 #include "StringArray.h"
 
-#ifdef ESP32
-#include <AsyncTCP.h>
-#include <WiFi.h>
-#elif defined(ESP8266)
-#include <ESP8266WiFi.h>
-#include <ESPAsyncTCP.h>
-#else
+#ifndef ESP32
 #error Platform not supported
 #endif
+
+#include <AsyncTCP.h>
+#include <WiFi.h>
 
 #ifdef ASYNCWEBSERVER_REGEX
 #define ASYNCWEBSERVER_REGEX_ATTRIBUTE

@@ -3,10 +3,7 @@
 
 For help and support [![Join the chat at https://gitter.im/me-no-dev/ESPAsyncWebServer](https://badges.gitter.im/me-no-dev/ESPAsyncWebServer.svg)](https://gitter.im/me-no-dev/ESPAsyncWebServer?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
-Async HTTP and WebSocket Server for ESP8266 Arduino
-
-For ESP8266 it requires [ESPAsyncTCP](https://github.com/me-no-dev/ESPAsyncTCP)
-To use this library you might need to have the latest git versions of [ESP8266](https://github.com/esp8266/Arduino) Arduino Core
+Async HTTP and WebSocket Server for ESP32
 
 For ESP32 it requires [AsyncTCP](https://github.com/me-no-dev/AsyncTCP) to work
 To use this library you might need to have the latest git versions of [ESP32](https://github.com/espressif/arduino-esp32) Arduino Core
@@ -95,7 +92,7 @@ To use this library you might need to have the latest git versions of [ESP32](ht
 
 ### Using PlatformIO
 
-[PlatformIO](http://platformio.org) is an open source ecosystem for IoT development with cross platform build system, library manager and full support for Espressif ESP8266/ESP32 development. It works on the popular host OS: Mac OS X, Windows, Linux 32/64, Linux ARM (like Raspberry Pi, BeagleBone, CubieBoard).
+[PlatformIO](http://platformio.org) is an open source ecosystem for IoT development with cross platform build system, library manager and full support for Espressif ESP32 development. It works on the popular host OS: Mac OS X, Windows, Linux 32/64, Linux ARM (like Raspberry Pi, BeagleBone, CubieBoard).
 
 1. Install [PlatformIO IDE](http://platformio.org/platformio-ide)
 2. Create new project using "PlatformIO Home > New Project"
@@ -1257,7 +1254,7 @@ server.reset();
 
 ## Setting up the server
 ```cpp
-#include "ESPAsyncTCP.h"
+#include "AsyncTCP.h"
 #include "ESPAsyncWebServer.h"
 
 AsyncWebServer server(80);
