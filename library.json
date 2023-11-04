@@ -17,7 +17,7 @@
   "dependencies": [
     {
       "name": "AsyncTCP",
-      "version": "https://github.com/me-no-dev/AsyncTCP.git",
+      "version": "https://github.com/OpenShock/AsyncTCP.git",
       "platforms": "espressif32"
     },
     {
