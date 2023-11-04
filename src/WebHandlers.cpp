@@ -21,7 +21,7 @@
 #include "ESPAsyncWebServer.h"
 #include "WebHandlerImpl.h"
 
-AsyncStaticWebHandler::AsyncStaticWebHandler(const char* uri, FS& fs, const char* path, const char* cache_control) : _fs(fs), _uri(uri), _path(path), _default_file("index.htm"), _cache_control(cache_control), _last_modified(""), _callback(nullptr) {
+AsyncStaticWebHandler::AsyncStaticWebHandler(const char* uri, FS& fs, const char* path, const char* cache_control) : _fs(fs), _uri(uri), _path(path), _default_file("index.htm"), _cache_control(cache_control), _last_modified("") {
   // Ensure leading '/'
   if (_uri.length() == 0 || _uri[0] != '/') _uri = "/" + _uri;
   if (_path.length() == 0 || _path[0] != '/') _path = "/" + _path;
@@ -34,10 +34,6 @@ AsyncStaticWebHandler::AsyncStaticWebHandler(const char* uri, FS& fs, const char
   // Notice that root will be "" not "/"
   if (_uri[_uri.length() - 1] == '/') _uri = _uri.substring(0, _uri.length() - 1);
   if (_path[_path.length() - 1] == '/') _path = _path.substring(0, _path.length() - 1);
-
-  // Reset stats
-  _gzipFirst = false;
-  _gzipStats = 0xF8;
 }
 
 AsyncStaticWebHandler& AsyncStaticWebHandler::setIsDir(bool isDir) {
@@ -119,47 +115,24 @@ bool AsyncStaticWebHandler::_getFile(AsyncWebServerRequest* request) {
 #endif
 
 bool AsyncStaticWebHandler::_fileExists(AsyncWebServerRequest* request, const String& path) {
-  bool fileFound = false;
-  bool gzipFound = false;
-
   String gzip = path + ".gz";
 
-  if (_gzipFirst) {
-    request->_tempFile = _fs.open(gzip, "r");
-    gzipFound          = FILE_IS_REAL(request->_tempFile);
-    if (!gzipFound) {
-      request->_tempFile = _fs.open(path, "r");
-      fileFound          = FILE_IS_REAL(request->_tempFile);
-    }
-  } else {
-    request->_tempFile = _fs.open(path, "r");
-    fileFound          = FILE_IS_REAL(request->_tempFile);
-    if (!fileFound) {
-      request->_tempFile = _fs.open(gzip, "r");
-      gzipFound          = FILE_IS_REAL(request->_tempFile);
+  request->_tempFile = _fs.open(gzip, "rb");
+
+  if (!FILE_IS_REAL(request->_tempFile)) {
+    request->_tempFile = _fs.open(path, "rb");
+    if(!FILE_IS_REAL(request->_tempFile)) {
+      return false;
     }
   }
 
-  bool found = fileFound || gzipFound;
+  // Extract the file name from the path and keep it in _tempObject
+  size_t pathLen  = path.length();
+  char* _tempPath = (char*)malloc(pathLen + 1);
+  snprintf(_tempPath, pathLen + 1, "%s", path.c_str());
+  request->_tempObject = (void*)_tempPath;
 
-  if (found) {
-    // Extract the file name from the path and keep it in _tempObject
-    size_t pathLen  = path.length();
-    char* _tempPath = (char*)malloc(pathLen + 1);
-    snprintf(_tempPath, pathLen + 1, "%s", path.c_str());
-    request->_tempObject = (void*)_tempPath;
-
-    // Calculate gzip statistic
-    _gzipStats = (_gzipStats << 1) + (gzipFound ? 1 : 0);
-    if (_gzipStats == 0x00)
-      _gzipFirst = false;                       // All files are not gzip
-    else if (_gzipStats == 0xFF)
-      _gzipFirst = true;                        // All files are gzip
-    else
-      _gzipFirst = _countBits(_gzipStats) > 4;  // IF we have more gzip files - try gzip first
-  }
-
-  return found;
+  return true;
 }
 
 uint8_t AsyncStaticWebHandler::_countBits(const uint8_t value) const {
@@ -187,7 +160,7 @@ void AsyncStaticWebHandler::handleRequest(AsyncWebServerRequest* request) {
       response->addHeader("ETag", etag);
       request->send(response);
     } else {
-      AsyncWebServerResponse* response = new AsyncFileResponse(request->_tempFile, filename, String(), false, _callback);
+      AsyncWebServerResponse* response = new AsyncFileResponse(request->_tempFile, filename, String(), false);
       if (_last_modified.length()) response->addHeader("Last-Modified", _last_modified);
       if (_cache_control.length()) {
         response->addHeader("Cache-Control", _cache_control);

@@ -45,10 +45,7 @@ protected:
   String _default_file;
   String _cache_control;
   String _last_modified;
-  AwsTemplateProcessor _callback;
   bool _isDir;
-  bool _gzipFirst;
-  uint8_t _gzipStats;
 
 public:
   AsyncStaticWebHandler(const char* uri, FS& fs, const char* path, const char* cache_control);
@@ -63,10 +60,6 @@ public:
   AsyncStaticWebHandler& setLastModified(time_t last_modified);
   AsyncStaticWebHandler& setLastModified();  // sets to current time. Make sure sntp is runing and time is updated
 #endif
-  AsyncStaticWebHandler& setTemplateProcessor(AwsTemplateProcessor newCallback) {
-    _callback = newCallback;
-    return *this;
-  }
 };
 
 class AsyncCallbackWebHandler : public AsyncWebHandler {

@@ -49,13 +49,9 @@ private:
   // so by gaining performance in one place, we'll lose it in another.
   std::vector<uint8_t> _cache;
   size_t _readDataFromCacheOrContent(uint8_t* data, const size_t len);
-  size_t _fillBufferAndProcessTemplates(uint8_t* buf, size_t maxLen);
-
-protected:
-  AwsTemplateProcessor _callback;
 
 public:
-  AsyncAbstractResponse(AwsTemplateProcessor callback = nullptr);
+  AsyncAbstractResponse();
   void _respond(AsyncWebServerRequest* request);
   size_t _ack(AsyncWebServerRequest* request, size_t len, uint32_t time);
   bool _sourceValid() const { return false; }
@@ -77,8 +73,8 @@ private:
   void _setContentType(const String& path);
 
 public:
-  AsyncFileResponse(FS& fs, const String& path, const String& contentType = String(), bool download = false, AwsTemplateProcessor callback = nullptr);
-  AsyncFileResponse(File content, const String& path, const String& contentType = String(), bool download = false, AwsTemplateProcessor callback = nullptr);
+  AsyncFileResponse(FS& fs, const String& path, const String& contentType = String(), bool download = false);
+  AsyncFileResponse(File content, const String& path, const String& contentType = String(), bool download = false);
   ~AsyncFileResponse();
   bool _sourceValid() const { return !!(_content); }
   virtual size_t _fillBuffer(uint8_t* buf, size_t maxLen) override;
@@ -89,7 +85,7 @@ private:
   Stream* _content;
 
 public:
-  AsyncStreamResponse(Stream& stream, const String& contentType, size_t len, AwsTemplateProcessor callback = nullptr);
+  AsyncStreamResponse(Stream& stream, const String& contentType, size_t len);
   bool _sourceValid() const { return !!(_content); }
   virtual size_t _fillBuffer(uint8_t* buf, size_t maxLen) override;
 };
@@ -100,7 +96,7 @@ private:
   size_t _filledLength;
 
 public:
-  AsyncCallbackResponse(const String& contentType, size_t len, AwsResponseFiller callback, AwsTemplateProcessor templateCallback = nullptr);
+  AsyncCallbackResponse(const String& contentType, size_t len, AwsResponseFiller callback);
   bool _sourceValid() const { return !!(_content); }
   virtual size_t _fillBuffer(uint8_t* buf, size_t maxLen) override;
 };
@@ -111,7 +107,7 @@ private:
   size_t _filledLength;
 
 public:
-  AsyncChunkedResponse(const String& contentType, AwsResponseFiller callback, AwsTemplateProcessor templateCallback = nullptr);
+  AsyncChunkedResponse(const String& contentType, AwsResponseFiller callback);
   bool _sourceValid() const { return !!(_content); }
   virtual size_t _fillBuffer(uint8_t* buf, size_t maxLen) override;
 };
@@ -122,7 +118,7 @@ private:
   size_t _readLength;
 
 public:
-  AsyncProgmemResponse(int code, const String& contentType, const uint8_t* content, size_t len, AwsTemplateProcessor callback = nullptr);
+  AsyncProgmemResponse(int code, const String& contentType, const uint8_t* content, size_t len);
   bool _sourceValid() const { return true; }
   virtual size_t _fillBuffer(uint8_t* buf, size_t maxLen) override;
 };
