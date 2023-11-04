@@ -108,7 +108,11 @@ bool AsyncStaticWebHandler::_getFile(AsyncWebServerRequest* request) {
   return _fileExists(request, path);
 }
 
+#ifdef ESP32
 #define FILE_IS_REAL(f) (f == true && !f.isDirectory())
+#else
+#define FILE_IS_REAL(f) (f == true)
+#endif
 
 bool AsyncStaticWebHandler::_fileExists(AsyncWebServerRequest* request, const String& path) {
   String gzip = path + ".gz";

@@ -5,6 +5,8 @@
 
 #include <ESPAsyncWebServer.h>
 
+#ifdef ESP32
+
 // This is the ESP32 version of the Sync Lock, using the FreeRTOS Semaphore
 class AsyncWebLock {
 private:
@@ -35,3 +37,40 @@ public:
     xSemaphoreGive(_lock);
   }
 };
+
+#else
+
+// This is the 8266 version of the Sync Lock which is currently unimplemented
+class AsyncWebLock {
+public:
+  AsyncWebLock() { }
+
+  ~AsyncWebLock() { }
+
+  bool lock() const { return false; }
+
+  void unlock() const { }
+};
+#endif
+
+class AsyncWebLockGuard {
+private:
+  const AsyncWebLock* _lock;
+
+public:
+  AsyncWebLockGuard(const AsyncWebLock& l) {
+    if (l.lock()) {
+      _lock = &l;
+    } else {
+      _lock = NULL;
+    }
+  }
+
+  ~AsyncWebLockGuard() {
+    if (_lock) {
+      _lock->unlock();
+    }
+  }
+};
+
+#endif  // ASYNCWEBSYNCHRONIZATION_H_

@@ -23,7 +23,11 @@
 
 #include <libb64/cencode.h>
 
+#ifndef ESP8266
 #include "mbedtls/sha1.h"
+#else
+#include <Hash.h>
+#endif
 
 #define MAX_PRINTF_LEN 64
 
@@ -1214,6 +1218,9 @@ AsyncWebSocketResponse::AsyncWebSocketResponse(const String& key, AsyncWebSocket
     _state = RESPONSE_FAILED;
     return;
   }
+#ifdef ESP8266
+  sha1(key + WS_STR_UUID, hash);
+#else
   (String&)key += WS_STR_UUID;
   mbedtls_sha1_context ctx;
   mbedtls_sha1_init(&ctx);
@@ -1221,6 +1228,7 @@ AsyncWebSocketResponse::AsyncWebSocketResponse(const String& key, AsyncWebSocket
   mbedtls_sha1_update_ret(&ctx, (const unsigned char*)key.c_str(), key.length());
   mbedtls_sha1_finish_ret(&ctx, hash);
   mbedtls_sha1_free(&ctx);
+#endif
   base64_encodestate _state;
   base64_init_encodestate(&_state);
   int len = base64_encode_block((const char*)hash, 20, buffer, &_state);
