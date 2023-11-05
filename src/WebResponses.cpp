@@ -433,28 +433,28 @@ AsyncFileResponse::~AsyncFileResponse() {
 }
 
 void AsyncFileResponse::_setContentType(const String& path) {
-  const __FlashStringHelper* const BINARY_MIME = F("application/octet-stream");
+  const char* const BINARY_MIME = "application/octet-stream";
 
-  static std::unordered_map<String, const __FlashStringHelper*> mimeTypes = {
-    { ".html",              F("text/html")},
-    {  ".htm",              F("text/html")},
-    {  ".css",               F("text/css")},
-    { ".json",       F("application/json")},
-    {   ".js", F("application/javascript")},
-    {  ".png",              F("image/png")},
-    {  ".gif",              F("image/gif")},
-    {  ".jpg",             F("image/jpeg")},
-    {  ".ico",           F("image/x-icon")},
-    {  ".svg",          F("image/svg+xml")},
-    {  ".eot",               F("font/eot")},
-    { ".woff",              F("font/woff")},
-    {".woff2",             F("font/woff2")},
-    {  ".ttf",               F("font/ttf")},
-    {  ".xml",               F("text/xml")},
-    {  ".pdf",        F("application/pdf")},
-    {  ".zip",        F("application/zip")},
-    {   ".gz",     F("application/x-gzip")},
-    {  ".txt",             F("text/plain")},
+  static std::unordered_map<String, const char* const> mimeTypes = {
+    { ".html",              "text/html"},
+    {  ".htm",              "text/html"},
+    {  ".css",               "text/css"},
+    { ".json",       "application/json"},
+    {   ".js", "application/javascript"},
+    {  ".png",              "image/png"},
+    {  ".gif",              "image/gif"},
+    {  ".jpg",             "image/jpeg"},
+    {  ".ico",           "image/x-icon"},
+    {  ".svg",          "image/svg+xml"},
+    {  ".eot",               "font/eot"},
+    { ".woff",              "font/woff"},
+    {".woff2",             "font/woff2"},
+    {  ".ttf",               "font/ttf"},
+    {  ".xml",               "text/xml"},
+    {  ".pdf",        "application/pdf"},
+    {  ".zip",        "application/zip"},
+    {   ".gz",     "application/x-gzip"},
+    {  ".txt",             "text/plain"},
     {  ".bin",                 BINARY_MIME},
   };
 
