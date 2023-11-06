@@ -21,7 +21,7 @@
 #include "ESPAsyncWebServer.h"
 #include "WebHandlerImpl.h"
 
-AsyncStaticWebHandler::AsyncStaticWebHandler(const char* uri, FS& fs, const char* path, const char* cache_control) : _fs(fs), _uri(uri), _path(path), _default_file("index.htm"), _cache_control(cache_control), _last_modified("") {
+AsyncStaticWebHandler::AsyncStaticWebHandler(const char* uri, FS& fs, const char* path, const char* cache_control) : _fs(fs), _uri(uri), _path(path), _default_file("index.htm"), _cache_control(cache_control), _shared_eTag("") {
   // Ensure leading '/'
   if (_uri.length() == 0 || _uri[0] != '/') _uri = "/" + _uri;
   if (_path.length() == 0 || _path[0] != '/') _path = "/" + _path;
@@ -51,29 +51,11 @@ AsyncStaticWebHandler& AsyncStaticWebHandler::setCacheControl(const char* cache_
   return *this;
 }
 
-AsyncStaticWebHandler& AsyncStaticWebHandler::setLastModified(const char* last_modified) {
-  _last_modified = String(last_modified);
+AsyncStaticWebHandler& AsyncStaticWebHandler::setSharedEtag(const char* etag) {
+  _shared_eTag = String(etag);
   return *this;
 }
 
-AsyncStaticWebHandler& AsyncStaticWebHandler::setLastModified(struct tm* last_modified) {
-  char result[30];
-  strftime(result, 30, "%a, %d %b %Y %H:%M:%S %Z", last_modified);
-  return setLastModified((const char*)result);
-}
-
-#ifdef ESP8266
-AsyncStaticWebHandler& AsyncStaticWebHandler::setLastModified(time_t last_modified) {
-  return setLastModified((struct tm*)gmtime(&last_modified));
-}
-
-AsyncStaticWebHandler& AsyncStaticWebHandler::setLastModified() {
-  time_t last_modified;
-  if (time(&last_modified) == 0)  // time is not yet set
-    return *this;
-  return setLastModified(last_modified);
-}
-#endif
 bool AsyncStaticWebHandler::canHandle(AsyncWebServerRequest* request) {
   if (request->method() != HTTP_GET || !request->url().startsWith(_uri) || !request->isExpectedRequestedConnType(RCT_DEFAULT, RCT_HTTP)) {
     return false;
@@ -149,22 +131,18 @@ void AsyncStaticWebHandler::handleRequest(AsyncWebServerRequest* request) {
   request->_tempObject = NULL;
 
   if (request->_tempFile == true) {
-    String etag = String(request->_tempFile.size());
-    if (_last_modified.length() && _last_modified == request->header("If-Modified-Since")) {
-      request->_tempFile.close();
-      request->send(304);  // Not modified
-    } else if (_cache_control.length() && request->hasHeader("If-None-Match") && request->header("If-None-Match").equals(etag)) {
+    bool canCache = !_cache_control.isEmpty() && !_shared_eTag.isEmpty();
+    if (canCache && request->header("If-None-Match").equals(_shared_eTag)) {
       request->_tempFile.close();
       AsyncWebServerResponse* response = new AsyncBasicResponse(304);  // Not modified
       response->addHeader("Cache-Control", _cache_control);
-      response->addHeader("ETag", etag);
+      response->addHeader("ETag", _shared_eTag);
       request->send(response);
     } else {
       AsyncWebServerResponse* response = new AsyncFileResponse(request->_tempFile, filename, String(), false);
-      if (_last_modified.length()) response->addHeader("Last-Modified", _last_modified);
-      if (_cache_control.length()) {
+      if (canCache) {
         response->addHeader("Cache-Control", _cache_control);
-        response->addHeader("ETag", etag);
+        response->addHeader("ETag", _shared_eTag);
       }
       request->send(response);
     }

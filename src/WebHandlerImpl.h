@@ -44,7 +44,7 @@ protected:
   String _path;
   String _default_file;
   String _cache_control;
-  String _last_modified;
+  String _shared_eTag;
   bool _isDir;
 
 public:
@@ -54,12 +54,7 @@ public:
   AsyncStaticWebHandler& setIsDir(bool isDir);
   AsyncStaticWebHandler& setDefaultFile(const char* filename);
   AsyncStaticWebHandler& setCacheControl(const char* cache_control);
-  AsyncStaticWebHandler& setLastModified(const char* last_modified);
-  AsyncStaticWebHandler& setLastModified(struct tm* last_modified);
-#ifdef ESP8266
-  AsyncStaticWebHandler& setLastModified(time_t last_modified);
-  AsyncStaticWebHandler& setLastModified();  // sets to current time. Make sure sntp is runing and time is updated
-#endif
+  AsyncStaticWebHandler& setSharedEtag(const char* etag);
 };
 
 class AsyncCallbackWebHandler : public AsyncWebHandler {
