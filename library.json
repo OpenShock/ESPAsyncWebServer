@@ -21,6 +21,7 @@
       "platforms": "espressif8266"
     },
     {
+      "owner": "willmmiles",
       "name": "AsyncTCP",
       "version": "https://github.com/OpenShock/AsyncTCP.git",
       "platforms": "espressif32"
