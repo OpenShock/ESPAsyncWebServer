@@ -23,7 +23,7 @@ AsyncWebHandler &AsyncWebHandler::setAuthentication(const char *username, const 
 };
 
 AsyncStaticWebHandler::AsyncStaticWebHandler(const char *uri, FS &fs, const char *path, const char *cache_control)
-  : _fs(fs), _uri(uri), _path(path), _default_file(F("index.htm")), _cache_control(cache_control), _last_modified(), _callback(nullptr) {
+  : _fs(fs), _uri(uri), _path(path), _default_file(F("index.htm")), _cache_control(cache_control), _shared_eTag(""), _callback(nullptr) {
   // Ensure leading '/'
   if (_uri.length() == 0 || _uri[0] != '/') {
     _uri = String('/') + _uri;
@@ -66,36 +66,9 @@ AsyncStaticWebHandler &AsyncStaticWebHandler::setCacheControl(const char *cache_
   return *this;
 }
 
-AsyncStaticWebHandler &AsyncStaticWebHandler::setLastModified(const char *last_modified) {
-  _last_modified = last_modified;
+AsyncStaticWebHandler &AsyncStaticWebHandler::setSharedEtag(const char *etag) {
+  _shared_eTag = etag;
   return *this;
-}
-
-AsyncStaticWebHandler &AsyncStaticWebHandler::setLastModified(struct tm *last_modified) {
-  char result[30];
-#ifdef ESP8266
-  auto formatP = PSTR("%a, %d %b %Y %H:%M:%S GMT");
-  char format[strlen_P(formatP) + 1];
-  strcpy_P(format, formatP);
-#else
-  static constexpr const char *format = "%a, %d %b %Y %H:%M:%S GMT";
-#endif
-
-  strftime(result, sizeof(result), format, last_modified);
-  _last_modified = result;
-  return *this;
-}
-
-AsyncStaticWebHandler &AsyncStaticWebHandler::setLastModified(time_t last_modified) {
-  return setLastModified((struct tm *)gmtime(&last_modified));
-}
-
-AsyncStaticWebHandler &AsyncStaticWebHandler::setLastModified() {
-  time_t last_modified;
-  if (time(&last_modified) == 0) {  // time is not yet set
-    return *this;
-  }
-  return setLastModified(last_modified);
 }
 
 bool AsyncStaticWebHandler::canHandle(AsyncWebServerRequest *request) const {
@@ -198,35 +171,10 @@ void AsyncStaticWebHandler::handleRequest(AsyncWebServerRequest *request) {
     return;
   }
 
-  time_t lw = request->_tempFile.getLastWrite();  // get last file mod time (if supported by FS)
-  // set etag to lastmod timestamp if available, otherwise to size
-  String etag;
-  if (lw) {
-    setLastModified(lw);
-#if defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350)
-    // time_t == long long int
-    constexpr size_t len = 1 + 8 * sizeof(time_t);
-    char buf[len];
-    char *ret = lltoa(lw ^ request->_tempFile.size(), buf, len, 10);
-    etag = ret ? String(ret) : String(request->_tempFile.size());
-#else
-    etag = lw ^ request->_tempFile.size();  // etag combines file size and lastmod timestamp
-#endif
-  } else {
-#if defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350)
-    etag = String(request->_tempFile.size());
-#else
-    etag = request->_tempFile.size();
-#endif
-  }
-
   bool not_modified = false;
 
-  // if-none-match has precedence over if-modified-since
-  if (request->hasHeader(T_INM)) {
-    not_modified = request->header(T_INM).equals(etag);
-  } else if (_last_modified.length()) {
-    not_modified = request->header(T_IMS).equals(_last_modified);
+  if (_shared_eTag.length()) {
+    not_modified = request->header(T_IMS).equals(_shared_eTag);
   }
 
   AsyncWebServerResponse *response;
@@ -246,10 +194,8 @@ void AsyncStaticWebHandler::handleRequest(AsyncWebServerRequest *request) {
     return;
   }
 
-  response->addHeader(T_ETag, etag.c_str());
-
-  if (_last_modified.length()) {
-    response->addHeader(T_Last_Modified, _last_modified.c_str());
+  if (_shared_eTag.length()) {
+    response->addHeader(T_ETag, _shared_eTag.c_str());
   }
   if (_cache_control.length()) {
     response->addHeader(T_Cache_Control, _cache_control.c_str());

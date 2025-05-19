@@ -26,7 +26,7 @@ protected:
   String _path;
   String _default_file;
   String _cache_control;
-  String _last_modified;
+  String _shared_eTag;
   AwsTemplateProcessor _callback;
   bool _isDir;
   bool _tryGzipFirst = true;
@@ -41,16 +41,12 @@ public:
   AsyncStaticWebHandler &setCacheControl(const char *cache_control);
 
   /**
-     * @brief Set the Last-Modified time for the object
+     * @brief Set the shared ETag for all files served by this handler.
      *
-     * @param last_modified
+     * @param etag
      * @return AsyncStaticWebHandler&
      */
-  AsyncStaticWebHandler &setLastModified(const char *last_modified);
-  AsyncStaticWebHandler &setLastModified(struct tm *last_modified);
-  AsyncStaticWebHandler &setLastModified(time_t last_modified);
-  // sets to current time. Make sure sntp is running and time is updated
-  AsyncStaticWebHandler &setLastModified();
+  AsyncStaticWebHandler &setSharedEtag(const char *etag);
 
   AsyncStaticWebHandler &setTemplateProcessor(AwsTemplateProcessor newCallback);
 };
