@@ -6,7 +6,7 @@
 //
 
 #include <Arduino.h>
-#ifdef ESP32
+#if defined(ESP32) || defined(LIBRETINY)
 #include <AsyncTCP.h>
 #include <WiFi.h>
 #elif defined(ESP8266)
@@ -96,7 +96,7 @@ static int key = -1;
 void setup() {
   Serial.begin(115200);
 
-#ifndef CONFIG_IDF_TARGET_ESP32H2
+#if SOC_WIFI_SUPPORTED || CONFIG_ESP_WIFI_REMOTE_ENABLED || LT_ARD_HAS_WIFI
   WiFi.mode(WIFI_AP);
   WiFi.softAP("esp-captive");
 #endif
@@ -131,9 +131,17 @@ void setup() {
     "/api", HTTP_POST,
     [](AsyncWebServerRequest *request) {
       // request parsing has finished
+      String *data = (String *)request->_tempObject;
+
+      if (!data) {
+        request->send(400);
+        return;
+      }
 
       // no data ?
-      if (!((String *)request->_tempObject)->length()) {
+      if (!data->length()) {
+        delete data;
+        request->_tempObject = nullptr;
         request->send(400);
         return;
       }
@@ -141,10 +149,15 @@ void setup() {
       JsonDocument doc;
 
       // deserialize and check for errors
-      if (deserializeJson(doc, *(String *)request->_tempObject)) {
+      if (deserializeJson(doc, *data)) {
+        delete data;
+        request->_tempObject = nullptr;
         request->send(400);
         return;
       }
+
+      delete data;
+      request->_tempObject = nullptr;
 
       // start UART com: UART will send the data to the Serial console and wait for the key press
       triggerUART = doc["input"].as<const char *>();
@@ -161,7 +174,7 @@ void setup() {
           return 0;  // 0 means we are done
         }
 
-        // log_d("UART answered!");
+        // async_ws_log_d("UART answered!");
 
         String answer = "You typed: ";
         answer.concat((char)key);
@@ -180,10 +193,10 @@ void setup() {
     },
     NULL,  // upload handler is not used so it should be NULL
     [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-      // log_d("Body: index: %u, len: %u, total: %u", index, len, total);
+      // async_ws_log_d("Body: index: %u, len: %u, total: %u", index, len, total);
 
       if (!index) {
-        // log_d("Start body parsing");
+        // async_ws_log_d("Start body parsing");
         request->_tempObject = new String();
         // cast request->_tempObject pointer to String and reserve total size
         ((String *)request->_tempObject)->reserve(total);
@@ -191,7 +204,7 @@ void setup() {
         request->client()->setRxTimeout(30);
       }
 
-      // log_d("Append body data");
+      // async_ws_log_d("Append body data");
       ((String *)request->_tempObject)->concat((const char *)data, len);
     }
   );
@@ -204,13 +217,13 @@ void setup() {
 void loop() {
   if (triggerUART.length() && key == -1) {
     Serial.println(triggerUART);
-    // log_d("Waiting for UART input...");
+    // async_ws_log_d("Waiting for UART input...");
     while (!Serial.available()) {
       delay(100);
     }
     key = Serial.read();
     Serial.flush();
-    // log_d("UART input: %c", key);
+    // async_ws_log_d("UART input: %c", key);
     triggerUART = emptyString;
   }
 }

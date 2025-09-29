@@ -172,7 +172,11 @@ void AsyncLoggingMiddleware::run(AsyncWebServerRequest *request, ArMiddlewareNex
     return;
   }
   _out->print(F("* Connection from "));
+#ifndef LIBRETINY
   _out->print(request->client()->remoteIP().toString());
+#else
+  _out->print(request->client()->remoteIP());
+#endif
   _out->print(':');
   _out->println(request->client()->remotePort());
   _out->print('>');
@@ -224,8 +228,13 @@ void AsyncLoggingMiddleware::run(AsyncWebServerRequest *request, ArMiddlewareNex
   }
 }
 
-void AsyncCorsMiddleware::addCORSHeaders(AsyncWebServerResponse *response) {
-  response->addHeader(asyncsrv::T_CORS_ACAO, _origin.c_str());
+void AsyncCorsMiddleware::addCORSHeaders(AsyncWebServerRequest *request, AsyncWebServerResponse *response) {
+  if (request != nullptr && _credentials && _origin == "*") {
+    // cannot use wildcard when allowing credentials
+    response->addHeader(asyncsrv::T_CORS_ACAO, request->header(asyncsrv::T_CORS_O).c_str());
+  } else {
+    response->addHeader(asyncsrv::T_CORS_ACAO, _origin.c_str());
+  }
   response->addHeader(asyncsrv::T_CORS_ACAM, _methods.c_str());
   response->addHeader(asyncsrv::T_CORS_ACAH, _headers.c_str());
   response->addHeader(asyncsrv::T_CORS_ACAC, _credentials ? asyncsrv::T_TRUE : asyncsrv::T_FALSE);
@@ -238,7 +247,7 @@ void AsyncCorsMiddleware::run(AsyncWebServerRequest *request, ArMiddlewareNext n
     // check if this is a preflight request => handle it and return
     if (request->method() == HTTP_OPTIONS) {
       AsyncWebServerResponse *response = request->beginResponse(200);
-      addCORSHeaders(response);
+      addCORSHeaders(request, response);
       request->send(response);
       return;
     }
@@ -247,7 +256,7 @@ void AsyncCorsMiddleware::run(AsyncWebServerRequest *request, ArMiddlewareNext n
     next();
     AsyncWebServerResponse *response = request->getResponse();
     if (response) {
-      addCORSHeaders(response);
+      addCORSHeaders(request, response);
     }
 
   } else {

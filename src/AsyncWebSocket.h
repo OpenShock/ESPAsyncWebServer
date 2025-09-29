@@ -5,8 +5,14 @@
 #define ASYNCWEBSOCKET_H_
 
 #include <Arduino.h>
-#ifdef ESP32
+
+#if defined(ESP32) || defined(LIBRETINY)
 #include <AsyncTCP.h>
+#ifdef LIBRETINY
+#ifdef round
+#undef round
+#endif
+#endif
 #include <mutex>
 #ifndef WS_MAX_QUEUED_MESSAGES
 #define WS_MAX_QUEUED_MESSAGES 32
@@ -24,6 +30,7 @@
 #endif
 
 #include <ESPAsyncWebServer.h>
+#include <AsyncWebServerLogging.h>
 
 #include <memory>
 
@@ -47,7 +54,60 @@ using AsyncWebSocketSharedBuffer = std::shared_ptr<std::vector<uint8_t>>;
 class AsyncWebSocket;
 class AsyncWebSocketResponse;
 class AsyncWebSocketClient;
-class AsyncWebSocketControl;
+
+/*
+ * Control Frame
+ */
+
+class AsyncWebSocketControl {
+private:
+  uint8_t _opcode;
+  uint8_t *_data;
+  size_t _len;
+  bool _mask;
+  bool _finished;
+
+public:
+  AsyncWebSocketControl(uint8_t opcode, const uint8_t *data = NULL, size_t len = 0, bool mask = false)
+    : _opcode(opcode), _len(len), _mask(len && mask), _finished(false) {
+    if (data == NULL) {
+      _len = 0;
+    }
+    if (_len) {
+      if (_len > 125) {
+        _len = 125;
+      }
+
+      _data = (uint8_t *)malloc(_len);
+
+      if (_data == NULL) {
+        async_ws_log_e("Failed to allocate");
+        _len = 0;
+      } else {
+        memcpy(_data, data, len);
+      }
+    } else {
+      _data = NULL;
+    }
+  }
+
+  ~AsyncWebSocketControl() {
+    if (_data != NULL) {
+      free(_data);
+    }
+  }
+
+  bool finished() const {
+    return _finished;
+  }
+  uint8_t opcode() {
+    return _opcode;
+  }
+  uint8_t len() {
+    return _len + 2;
+  }
+  size_t send(AsyncClient *client);
+};
 
 typedef struct {
   /** Message type as defined by enum AwsFrameType.
