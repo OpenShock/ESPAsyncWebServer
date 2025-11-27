@@ -4,8 +4,6 @@
 #include "AsyncWebSocket.h"
 #include "AsyncWebServerLogging.h"
 
-#include <cstring>
-
 #include <libb64/cencode.h>
 
 #if defined(ESP32)
@@ -20,6 +18,12 @@
 #elif defined(LIBRETINY)
 #include <mbedtls/sha1.h>
 #endif
+
+#include <algorithm>
+#include <cstdio>
+#include <cstring>
+#include <memory>
+#include <utility>
 
 using namespace asyncsrv;
 
@@ -48,10 +52,10 @@ size_t webSocketSendFrame(AsyncClient *client, bool final, uint8_t opcode, bool 
   uint8_t headLen = 2;
   if (len && mask) {
     headLen += 4;
-    mbuf[0] = rand() % 0xFF;
-    mbuf[1] = rand() % 0xFF;
-    mbuf[2] = rand() % 0xFF;
-    mbuf[3] = rand() % 0xFF;
+    mbuf[0] = rand() % 0xFF;  // NOLINT(runtime/threadsafe_fn)
+    mbuf[1] = rand() % 0xFF;  // NOLINT(runtime/threadsafe_fn)
+    mbuf[2] = rand() % 0xFF;  // NOLINT(runtime/threadsafe_fn)
+    mbuf[3] = rand() % 0xFF;  // NOLINT(runtime/threadsafe_fn)
   }
   if (len > 125) {
     headLen += 2;
@@ -221,14 +225,10 @@ size_t AsyncWebSocketMessage::send(AsyncClient *client) {
 const char *AWSC_PING_PAYLOAD = "ESPAsyncWebServer-PING";
 const size_t AWSC_PING_PAYLOAD_LEN = 22;
 
-AsyncWebSocketClient::AsyncWebSocketClient(AsyncWebServerRequest *request, AsyncWebSocket *server) : _tempObject(NULL) {
-  _client = request->client();
-  _server = server;
-  _clientId = _server->_getNextId();
-  _status = WS_CONNECTED;
-  _pstate = 0;
-  _lastMessageTime = millis();
-  _keepAlivePeriod = 0;
+AsyncWebSocketClient::AsyncWebSocketClient(AsyncClient *client, AsyncWebSocket *server)
+  : _client(client), _server(server), _clientId(_server->_getNextId()), _status(WS_CONNECTED), _pstate(0), _lastMessageTime(millis()), _keepAlivePeriod(0),
+    _tempObject(NULL) {
+
   _client->setRxTimeout(0);
   _client->onError(
     [](void *r, AsyncClient *c, int8_t error) {
@@ -272,7 +272,6 @@ AsyncWebSocketClient::AsyncWebSocketClient(AsyncWebServerRequest *request, Async
     },
     this
   );
-  delete request;
   memset(&_pinfo, 0, sizeof(_pinfo));
 }
 
@@ -311,12 +310,12 @@ void AsyncWebSocketClient::_onAck(size_t len, uint32_t time) {
 #ifdef ESP32
           /*
             Unlocking has to be called before return execution otherwise std::unique_lock ::~unique_lock() will get an exception pthread_mutex_unlock.
-            Due to _client->close(true) shall call the callback function _onDisconnect()
+            Due to _client->close() shall call the callback function _onDisconnect()
             The calling flow _onDisconnect() --> _handleDisconnect() --> ~AsyncWebSocketClient()
           */
           lock.unlock();
 #endif
-          _client->close(true);
+          _client->close();
         }
         return;
       }
@@ -423,12 +422,12 @@ bool AsyncWebSocketClient::_queueMessage(AsyncWebSocketSharedBuffer buffer, uint
 #ifdef ESP32
         /*
           Unlocking has to be called before return execution otherwise std::unique_lock ::~unique_lock() will get an exception pthread_mutex_unlock.
-          Due to _client->close(true) shall call the callback function _onDisconnect()
+          Due to _client->close() shall call the callback function _onDisconnect()
           The calling flow _onDisconnect() --> _handleDisconnect() --> ~AsyncWebSocketClient()
         */
         lock.unlock();
 #endif
-        _client->close(true);
+        _client->close();
       }
 
       async_ws_log_e("Too many messages queued: closing connection");
@@ -497,7 +496,7 @@ void AsyncWebSocketClient::_onTimeout(uint32_t time) {
   }
   // Serial.println("onTime");
   (void)time;
-  _client->close(true);
+  _client->close();
 }
 
 void AsyncWebSocketClient::_onDisconnect() {
@@ -582,7 +581,7 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
         if (_status == WS_DISCONNECTING) {
           _status = WS_DISCONNECTED;
           if (_client) {
-            _client->close(true);
+            _client->close();
           }
         } else {
           _status = WS_DISCONNECTING;
@@ -806,7 +805,10 @@ void AsyncWebSocket::_handleEvent(AsyncWebSocketClient *client, AwsEventType typ
 
 AsyncWebSocketClient *AsyncWebSocket::_newClient(AsyncWebServerRequest *request) {
   _clients.emplace_back(request, this);
+  // we've just detached AsyncTCP client from AsyncWebServerRequest
   _handleEvent(&_clients.back(), WS_EVT_CONNECT, request, NULL, 0);
+  // after user code completed CONNECT event callback we can delete req/response objects
+  delete request;
   return &_clients.back();
 }
 
@@ -1243,8 +1245,7 @@ AsyncWebSocketMessageBuffer *AsyncWebSocket::makeBuffer(const uint8_t *data, siz
  * Authentication code from https://github.com/Links2004/arduinoWebSockets/blob/master/src/WebSockets.cpp#L480
  */
 
-AsyncWebSocketResponse::AsyncWebSocketResponse(const String &key, AsyncWebSocket *server) {
-  _server = server;
+AsyncWebSocketResponse::AsyncWebSocketResponse(const String &key, AsyncWebSocket *server) : _server(server) {
   _code = 101;
   _sendContentLength = false;
 
@@ -1287,21 +1288,29 @@ AsyncWebSocketResponse::AsyncWebSocketResponse(const String &key, AsyncWebSocket
 
 void AsyncWebSocketResponse::_respond(AsyncWebServerRequest *request) {
   if (_state == RESPONSE_FAILED) {
-    request->client()->close(true);
+    request->client()->close();
     return;
   }
+  // unbind client's onAck callback from AsyncWebServerRequest's, we will destroy it on next callback and steal the client,
+  // can't do it now 'cause now we are in AsyncWebServerRequest::_onAck 's stack actually
+  // here we are loosing time on one RTT delay, but with current design we can't get rid of Req/Resp objects other way
+  _request = request;
+  request->client()->onAck(
+    [](void *r, AsyncClient *c, size_t len, uint32_t time) {
+      if (len) {
+        static_cast<AsyncWebSocketResponse *>(r)->_switchClient();
+      }
+    },
+    this
+  );
   String out;
   _assembleHead(out, request->version());
   request->client()->write(out.c_str(), _headLength);
   _state = RESPONSE_WAIT_ACK;
 }
 
-size_t AsyncWebSocketResponse::_ack(AsyncWebServerRequest *request, size_t len, uint32_t time) {
-  (void)time;
-
-  if (len) {
-    _server->_newClient(request);
-  }
-
-  return 0;
+void AsyncWebSocketResponse::_switchClient() {
+  // detach client from request
+  _server->_newClient(_request);
+  // _newClient() would also destruct _request and *this
 }

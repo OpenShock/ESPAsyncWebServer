@@ -4,6 +4,8 @@
 #include "WebAuthentication.h"
 #include <ESPAsyncWebServer.h>
 
+#include <list>
+
 AsyncMiddlewareChain::~AsyncMiddlewareChain() {
   for (AsyncMiddleware *m : _middlewares) {
     if (m->_freeOnRemoval) {
@@ -85,6 +87,12 @@ void AsyncAuthenticationMiddleware::setPasswordHash(const char *hash) {
   _hasCreds = _username.length() && _credentials.length();
 }
 
+void AsyncAuthenticationMiddleware::setToken(const char *token) {
+  _credentials = token;
+  _hash = _credentials.length();
+  _hasCreds = _credentials.length();
+}
+
 bool AsyncAuthenticationMiddleware::generateHash() {
   // ensure we have all the necessary data
   if (!_hasCreds) {
@@ -120,19 +128,15 @@ bool AsyncAuthenticationMiddleware::generateHash() {
 }
 
 bool AsyncAuthenticationMiddleware::allowed(AsyncWebServerRequest *request) const {
-  if (_authMethod == AsyncAuthType::AUTH_NONE) {
-    return true;
+  switch (_authMethod) {
+    case AsyncAuthType::AUTH_NONE:   return true;
+    case AsyncAuthType::AUTH_DENIED: return false;
+    case AsyncAuthType::AUTH_BEARER: return _authcFunc(request);
+    case AsyncAuthType::AUTH_OTHER:  return _authcFunc(request);
+    case AsyncAuthType::AUTH_BASIC:  return !_hasCreds || _authcFunc(request);
+    case AsyncAuthType::AUTH_DIGEST: return !_hasCreds || _authcFunc(request);
+    default:                         return false;
   }
-
-  if (_authMethod == AsyncAuthType::AUTH_DENIED) {
-    return false;
-  }
-
-  if (!_hasCreds) {
-    return true;
-  }
-
-  return request->authenticate(_username.c_str(), _credentials.c_str(), _realm.c_str(), _hash);
 }
 
 void AsyncAuthenticationMiddleware::run(AsyncWebServerRequest *request, ArMiddlewareNext next) {

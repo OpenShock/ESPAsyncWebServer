@@ -19,27 +19,21 @@
 
 #include <ESPAsyncWebServer.h>
 
-#if __has_include("ArduinoJson.h")
-#include <ArduinoJson.h>
-#include <AsyncJson.h>
-#include <AsyncMessagePack.h>
-#endif
-
 static AsyncWebServer server(80);
 
-#if __has_include("ArduinoJson.h")
+#if ASYNC_JSON_SUPPORT == 1
 static AsyncCallbackJsonWebHandler *handler = new AsyncCallbackJsonWebHandler("/json2");
 #endif
 
 void setup() {
   Serial.begin(115200);
 
-#if SOC_WIFI_SUPPORTED || CONFIG_ESP_WIFI_REMOTE_ENABLED || LT_ARD_HAS_WIFI
+#if ASYNCWEBSERVER_WIFI_SUPPORTED
   WiFi.mode(WIFI_AP);
   WiFi.softAP("esp-captive");
 #endif
 
-#if __has_include("ArduinoJson.h")
+#if ASYNC_JSON_SUPPORT == 1
   //
   // sends JSON using AsyncJsonResponse
   //
@@ -92,6 +86,20 @@ void setup() {
   });
 
   server.addHandler(handler);
+
+  // New Json API since 3.8.2, which works for both Json and MessagePack bodies
+  // curl -v -X POST -H 'Content-Type: application/json' -d '{"name":"You"}' http://192.168.4.1/json3
+
+  server.on("/json3", HTTP_POST, [](AsyncWebServerRequest *request, JsonVariant &json) {
+    Serial.printf("Body request : ");
+    serializeJson(json, Serial);
+    Serial.println();
+    AsyncJsonResponse *response = new AsyncJsonResponse();
+    JsonObject root = response->getRoot().to<JsonObject>();
+    root["hello"] = json.as<JsonObject>()["name"];
+    response->setLength();
+    request->send(response);
+  });
 #endif
 
   server.begin();
