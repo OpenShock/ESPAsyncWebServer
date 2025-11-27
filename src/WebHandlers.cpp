@@ -182,23 +182,12 @@ void AsyncStaticWebHandler::handleRequest(AsyncWebServerRequest *request) {
     return;
   }
 
-  bool not_modified = false;
-
-  if (_shared_eTag.length()) {
-    not_modified = request->header(T_IMS).equals(_shared_eTag);
-  }
-
   AsyncWebServerResponse *response;
 
   bool notModified = false;
-  // 1. If the client sent If-None-Match and we have an ETag → compare
-  if (*etag != '\0' && request->header(T_INM) == etag) {
-    notModified = true;
-  }
-  // 2. Otherwise, if there is no ETag but we have Last-Modified and Last-Modified matches
-  else if (*etag == '\0' && _last_modified.length() > 0 && request->header(T_IMS) == _last_modified) {
-    async_ws_log_d("_last_modified: %s", _last_modified.c_str());
-    notModified = true;
+
+  if (_shared_eTag.length()) {
+    notModified = request->header(T_IMS).equals(_shared_eTag);
   }
 
   if (notModified) {
