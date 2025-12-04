@@ -470,7 +470,8 @@ size_t AsyncAbstractResponse::write_send_buffs(AsyncWebServerRequest *request, s
           }
         }
       } else {
-        size_t const readLen = _fillBufferAndProcessTemplates(_send_buffer->data(), std::min(_send_buffer->size(), tcp_win));
+        size_t const readLen =
+          _fillBufferAndProcessTemplates(_send_buffer->data(), std::min(std::min(_send_buffer->size(), tcp_win), _contentLength - _sentLength));
         if (readLen == 0) {
           // no more data to send
           _state = RESPONSE_END;
