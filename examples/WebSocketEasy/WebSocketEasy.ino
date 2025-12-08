@@ -40,7 +40,7 @@ static const char *htmlContent PROGMEM = R"(
 </head>
 <body>
   <h1>WebSocket Example</h1>
-  <>Open your browser console!</p>
+  <p>Open your browser console!</p>
   <input type="text" id="message" placeholder="Type a message">
   <button onclick='sendMessage()'>Send</button>
   <script>
