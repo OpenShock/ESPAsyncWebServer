@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-// Copyright 2016-2025 Hristo Gochkov, Mathieu Carbou, Emil Muratov
+// Copyright 2016-2026 Hristo Gochkov, Mathieu Carbou, Emil Muratov, Will Miles
 
 #include "ESPAsyncWebServer.h"
 #include "WebResponseImpl.h"
@@ -470,8 +470,16 @@ size_t AsyncAbstractResponse::write_send_buffs(AsyncWebServerRequest *request, s
           }
         }
       } else {
-        size_t const readLen =
-          _fillBufferAndProcessTemplates(_send_buffer->data(), std::min(std::min(_send_buffer->size(), tcp_win), _contentLength - _sentLength));
+        // Non-chunked data. We can either have a response:
+        // - with a known content-length (example: Json response), in that case we pass the remaining length if lower than tcp_win
+        // - or with unknown content-length (see LargeResponse example, like ESP32Cam with streaming), in that case we just fill as much as tcp_win allows
+        size_t maxLen = std::min(_send_buffer->size(), tcp_win);
+        if (_contentLength) {
+          maxLen = _contentLength > _sentLength ? std::min(maxLen, _contentLength - _sentLength) : 0;
+        }
+
+        size_t const readLen = _fillBufferAndProcessTemplates(_send_buffer->data(), maxLen);
+
         if (readLen == 0) {
           // no more data to send
           _state = RESPONSE_END;
@@ -756,7 +764,7 @@ AsyncFileResponse::AsyncFileResponse(FS &fs, const String &path, const char *con
     int filenameStart = path.lastIndexOf('/') + 1;
     const char *filename = path.c_str() + filenameStart;
     String buf;
-    buf.reserve(strlen(T_attachment) + strlen(filename) + 2);
+    buf.reserve(sizeof(T_attachment) - 1 + strlen(filename) + 2);
     buf = T_attachment;
     buf += filename;
     buf += "\"";
@@ -794,7 +802,7 @@ AsyncFileResponse::AsyncFileResponse(File content, const String &path, const cha
     int filenameStart = path.lastIndexOf('/') + 1;
     const char *filename = path.c_str() + filenameStart;
     String buf;
-    buf.reserve(strlen(T_attachment) + strlen(filename) + 2);
+    buf.reserve(sizeof(T_attachment) - 1 + strlen(filename) + 2);
     buf = T_attachment;
     buf += filename;
     buf += "\"";

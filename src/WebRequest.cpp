@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-// Copyright 2016-2025 Hristo Gochkov, Mathieu Carbou, Emil Muratov
+// Copyright 2016-2026 Hristo Gochkov, Mathieu Carbou, Emil Muratov, Will Miles
 
 #include "ESPAsyncWebServer.h"
 #include "WebAuthentication.h"
@@ -1001,7 +1001,7 @@ void AsyncWebServerRequest::requestAuthentication(AsyncAuthType method, const ch
     case AsyncAuthType::AUTH_BASIC:
     {
       String header;
-      if (header.reserve(strlen(T_BASIC_REALM) + strlen(realm) + 1)) {
+      if (header.reserve(sizeof(T_BASIC_REALM) - 1 + strlen(realm) + 1)) {
         header.concat(T_BASIC_REALM);
         header.concat(realm);
         header.concat('"');
@@ -1015,7 +1015,7 @@ void AsyncWebServerRequest::requestAuthentication(AsyncAuthType method, const ch
     }
     case AsyncAuthType::AUTH_DIGEST:
     {
-      size_t len = strlen(T_DIGEST_) + strlen(T_realm__) + strlen(T_auth_nonce) + 32 + strlen(T__opaque) + 32 + 1;
+      size_t len = sizeof(T_DIGEST_) - 1 + sizeof(T_realm__) - 1 + sizeof(T_auth_nonce) - 1 + 32 + sizeof(T__opaque) - 1 + 32 + 1;
       String header;
       if (header.reserve(len + strlen(realm))) {
         const String nonce = genRandomMD5();

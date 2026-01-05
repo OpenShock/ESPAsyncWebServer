@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-// Copyright 2016-2025 Hristo Gochkov, Mathieu Carbou, Emil Muratov
+// Copyright 2016-2026 Hristo Gochkov, Mathieu Carbou, Emil Muratov, Will Miles
 
 //
 // Shows how to use request continuation to pause a request for a long processing task, and be able to resume it later.
