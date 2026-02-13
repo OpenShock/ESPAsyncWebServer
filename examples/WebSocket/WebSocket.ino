@@ -49,6 +49,11 @@ static const char *htmlContent PROGMEM = R"(
       ws.send(message);
       console.log("WebSocket sent: " + message);
     }
+    setInterval(function() {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send("msg from browser");
+      }
+    }, 1000);
   </script>
 </body>
 </html>
