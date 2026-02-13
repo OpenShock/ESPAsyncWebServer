@@ -565,7 +565,9 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
   uint8_t *data = (uint8_t *)pbuf;
 
   while (plen > 0) {
-    async_ws_log_v("WS[%" PRIu32 "] _onData: plen=%" PRIu32 ", _pstate=%" PRIu8 ", _status=%" PRIu8, _clientId, plen, _pstate, static_cast<uint8_t>(_status));
+    async_ws_log_v(
+      "WS[%" PRIu32 "] _onData: plen: %" PRIu32 ", _pstate: %" PRIu8 ", _status: %" PRIu8, _clientId, plen, _pstate, static_cast<uint8_t>(_status)
+    );
 
     if (_pstate == STATE_FRAME_START) {
       const uint8_t *fdata = data;
@@ -616,7 +618,7 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
 
         //wait for more data
         _pstate = STATE_FRAME_MASK;
-        async_ws_log_v("WS[%" PRIu32 "] waiting for more mask data: read=%" PRIu8 "/4", _clientId, _pinfo.masked - 1);
+        async_ws_log_v("WS[%" PRIu32 "] waiting for more mask data: read: %" PRIu8 "/4", _clientId, _pinfo.masked - 1);
         return;
       }
 
