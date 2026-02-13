@@ -656,31 +656,7 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
       }
 
       if (datalen > 0) {
-        // ------------------------------------------------------------
-        // Issue 384: https://github.com/ESP32Async/ESPAsyncWebServer/issues/384
-        // Discussion: https://github.com/ESP32Async/ESPAsyncWebServer/pull/383#discussion_r2760425739
-        // The initial design of the library was doing a backup of the byte following the data buffer because the client code
-        // was allowed and documented to do something like data[len] = 0; to facilitate null-terminated string handling.
-        // This was a bit hacky but it was working and it was documented, although completely incorrect because it was modifying a byte outside of the data buffer.
-        // So to fix this behavior and to avoid breaking existing client code that may be relying on this behavior, we now have to copy the data to a temporary buffer that has an extra byte for the null terminator.
-        // ------------------------------------------------------------
-        uint8_t *copy = (uint8_t *)malloc(datalen + 1);
-
-        if (copy == NULL) {
-          async_ws_log_e("Failed to allocate");
-          _status = WS_DISCONNECTED;
-          if (_client) {
-            _client->abort();
-          }
-          return;
-        }
-
-        memcpy(copy, data, datalen);
-        copy[datalen] = 0;
-
-        _server->_handleEvent(this, WS_EVT_DATA, (void *)&_pinfo, copy, datalen);
-
-        free(copy);
+        _handleDataEvent(data, datalen);
       }
 
       // track index for next fragment
@@ -727,36 +703,13 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
       } else if (_pinfo.opcode < WS_DISCONNECT) {  // continuation or text/binary frame
         async_ws_log_v("WS[%" PRIu32 "]: processing data frame num=%" PRIu32 "", _clientId, _pinfo.num);
 
-        // ------------------------------------------------------------
-        // Issue 384: https://github.com/ESP32Async/ESPAsyncWebServer/issues/384
-        // Discussion: https://github.com/ESP32Async/ESPAsyncWebServer/pull/383#discussion_r2760425739
-        // The initial design of the library was doing a backup of the byte following the data buffer because the client code
-        // was allowed and documented to do something like data[len] = 0; to facilitate null-terminated string handling.
-        // This was a bit hacky but it was working and it was documented, although completely incorrect because it was modifying a byte outside of the data buffer.
-        // So to fix this behavior and to avoid breaking existing client code that may be relying on this behavior, we now have to copy the data to a temporary buffer that has an extra byte for the null terminator.
-        // ------------------------------------------------------------
-        uint8_t *copy = (uint8_t *)malloc(datalen + 1);
+        _handleDataEvent(data, datalen);
 
-        if (copy == NULL) {
-          async_ws_log_e("Failed to allocate");
-          _status = WS_DISCONNECTED;
-          if (_client) {
-            _client->abort();
-          }
-          return;
-        }
-
-        memcpy(copy, data, datalen);
-        copy[datalen] = 0;
-
-        _server->_handleEvent(this, WS_EVT_DATA, (void *)&_pinfo, copy, datalen);
         if (_pinfo.final) {
           _pinfo.num = 0;
         } else {
           _pinfo.num += 1;
         }
-
-        free(copy);
       }
 
     } else {
@@ -775,6 +728,36 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
 
     data += datalen;
     plen -= datalen;
+  }
+}
+
+void AsyncWebSocketClient::_handleDataEvent(uint8_t *data, size_t len) {
+  // ------------------------------------------------------------
+  // Issue 384: https://github.com/ESP32Async/ESPAsyncWebServer/issues/384
+  // Discussion: https://github.com/ESP32Async/ESPAsyncWebServer/pull/383#discussion_r2760425739
+  // The initial design of the library was doing a backup of the byte following the data buffer because the client code
+  // was allowed and documented to do something like data[len] = 0; to facilitate null-terminated string handling.
+  // This was a bit hacky but it was working and it was documented, although completely incorrect because it was modifying a byte outside of the data buffer.
+  // So to fix this behavior and to avoid breaking existing client code that may be relying on this behavior, we now have to copy the data to a temporary buffer that has an extra byte for the null terminator.
+  // ------------------------------------------------------------
+  // Optimization note:
+  // - info->opcode stores the current WS frame type (binary, text, continuation)
+  // - info->message_opcode stores the WS frame type of the first frame of the message, which is used for fragmented messages to know the message type when processing subsequent frame with opcode 0 (continuation)
+  // So we can use info->message_opcode to avoid copying the data for non-text frames, and only copy the data for text frames when we need to add a null terminator for client code convenience.
+  if (_pinfo.message_opcode == WS_TEXT) {
+    std::unique_ptr<uint8_t[]> copy(new (std::nothrow) uint8_t[len + 1]());
+    if (copy) {
+      memcpy(copy.get(), data, len);
+      copy[len] = 0;
+      _server->_handleEvent(this, WS_EVT_DATA, (void *)&_pinfo, copy.get(), len);
+    } else {
+      async_ws_log_e("Failed to allocate");
+      if (_client) {
+        _client->abort();
+      }
+    }
+  } else {
+    _server->_handleEvent(this, WS_EVT_DATA, (void *)&_pinfo, data, len);
   }
 }
 

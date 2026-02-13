@@ -54,7 +54,7 @@ void setup() {
       AwsFrameInfo *info = (AwsFrameInfo *)arg;
       String msg = "";
       if (info->final && info->index == 0 && info->len == len) {
-        if (info->opcode == WS_TEXT) {
+        if (info->message_opcode == WS_TEXT) {
           Serial.printf("ws text: %s\n", (char *)data);
         }
       }
