@@ -49,6 +49,11 @@ static const char *htmlContent PROGMEM = R"(
       ws.send(message);
       console.log("WebSocket sent: " + message);
     }
+    setInterval(function() {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send("msg from browser");
+      }
+    }, 1000);
   </script>
 </body>
 </html>
@@ -104,12 +109,13 @@ void setup() {
     } else if (type == WS_EVT_DATA) {
       AwsFrameInfo *info = (AwsFrameInfo *)arg;
       Serial.printf(
-        "index: %" PRIu64 ", len: %" PRIu64 ", final: %" PRIu8 ", opcode: %" PRIu8 ", framelen: %d\n", info->index, info->len, info->final, info->opcode, len
+        "index: %" PRIu64 ", len: %" PRIu64 ", final: %" PRIu8 ", opcode: %" PRIu8 ", framelen: %d\n", info->index, info->len, info->final,
+        info->message_opcode, len
       );
 
       // complete frame
       if (info->final && info->index == 0 && info->len == len) {
-        if (info->opcode == WS_TEXT) {
+        if (info->message_opcode == WS_TEXT) {
           Serial.printf("ws text: %s\n", (char *)data);
           client->ping();
         }

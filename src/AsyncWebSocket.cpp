@@ -565,7 +565,9 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
   uint8_t *data = (uint8_t *)pbuf;
 
   while (plen > 0) {
-    async_ws_log_v("WS[%" PRIu32 "]: _onData: plen=%" PRIu32 ", _pstate=%" PRIu8 ", _status=%" PRIu8, _clientId, plen, _pstate, static_cast<uint8_t>(_status));
+    async_ws_log_v(
+      "WS[%" PRIu32 "] _onData: plen: %" PRIu32 ", _pstate: %" PRIu8 ", _status: %" PRIu8, _clientId, plen, _pstate, static_cast<uint8_t>(_status)
+    );
 
     if (_pstate == STATE_FRAME_START) {
       const uint8_t *fdata = data;
@@ -593,7 +595,7 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
     }
 
     async_ws_log_v(
-      "WS[%" PRIu32 "]: _pinfo: index: %" PRIu64 ", final: %" PRIu8 ", opcode: %" PRIu8 ", masked: %" PRIu8 ", len: %" PRIu64, _clientId, _pinfo.index,
+      "WS[%" PRIu32 "] _pinfo: index: %" PRIu64 ", final: %" PRIu8 ", opcode: %" PRIu8 ", masked: %" PRIu8 ", len: %" PRIu64, _clientId, _pinfo.index,
       _pinfo.final, _pinfo.opcode, _pinfo.masked, _pinfo.len
     );
 
@@ -606,7 +608,7 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
       if (plen == 0) {
         // Safari close frame edge case: masked bit set but no mask data
         if (_pinfo.opcode == WS_DISCONNECT) {
-          async_ws_log_v("WS[%" PRIu32 "]: close frame with incomplete mask, treating as unmasked", _clientId);
+          async_ws_log_v("WS[%" PRIu32 "] close frame with incomplete mask, treating as unmasked", _clientId);
           _pinfo.masked = 0;
           _pinfo.index = 0;
           _pinfo.len = 0;
@@ -616,7 +618,7 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
 
         //wait for more data
         _pstate = STATE_FRAME_MASK;
-        async_ws_log_v("WS[%" PRIu32 "]: waiting for more mask data: read=%" PRIu8 "/4", _clientId, _pinfo.masked - 1);
+        async_ws_log_v("WS[%" PRIu32 "] waiting for more mask data: read: %" PRIu8 "/4", _clientId, _pinfo.masked - 1);
         return;
       }
 
@@ -632,7 +634,7 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
 
     // restore masked to 1 for backward compatibility
     if (_pinfo.masked >= 5) {
-      async_ws_log_v("WS[%" PRIu32 "]: mask read complete", _clientId);
+      async_ws_log_v("WS[%" PRIu32 "] mask read complete", _clientId);
       _pinfo.masked = 1;
     }
 
@@ -644,54 +646,37 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
       }
     }
 
-    if ((datalen + _pinfo.index) < _pinfo.len) {
-      _pstate = STATE_FRAME_DATA;
-      async_ws_log_v("WS[%" PRIu32 "]: processing next fragment index=%" PRIu64 ", len=%" PRIu32 "", _clientId, _pinfo.index, (uint32_t)datalen);
-
-      if (_pinfo.index == 0) {
-        if (_pinfo.opcode) {
-          _pinfo.message_opcode = _pinfo.opcode;
-          _pinfo.num = 0;
-        }
+    if (_pinfo.index == 0) {  // first fragment of the frame
+      // init message_opcode for this frame
+      // note: For next WS_CONTINUATION frames, they have opcode 0, so message_opcode will stay like the first frame
+      if (_pinfo.opcode == WS_TEXT || _pinfo.opcode == WS_BINARY) {
+        _pinfo.message_opcode = _pinfo.opcode;
       }
+      // init frame number to 0 if only 1 frame or if this is the first frame of a fragmented message
+      if (_pinfo.final || datalen < _pinfo.len) {
+        _pinfo.num = 0;
+      }
+    }
+
+    if ((datalen + _pinfo.index) < _pinfo.len) {  // more fragments to read for this frame
+      _pstate = STATE_FRAME_DATA;
 
       if (datalen > 0) {
-        // ------------------------------------------------------------
-        // Issue 384: https://github.com/ESP32Async/ESPAsyncWebServer/issues/384
-        // Discussion: https://github.com/ESP32Async/ESPAsyncWebServer/pull/383#discussion_r2760425739
-        // The initial design of the library was doing a backup of the byte following the data buffer because the client code
-        // was allowed and documented to do something like data[len] = 0; to facilitate null-terminated string handling.
-        // This was a bit hacky but it was working and it was documented, although completely incorrect because it was modifying a byte outside of the data buffer.
-        // So to fix this behavior and to avoid breaking existing client code that may be relying on this behavior, we now have to copy the data to a temporary buffer that has an extra byte for the null terminator.
-        // ------------------------------------------------------------
-        uint8_t *copy = (uint8_t *)malloc(datalen + 1);
-
-        if (copy == NULL) {
-          async_ws_log_e("Failed to allocate");
-          _status = WS_DISCONNECTED;
-          if (_client) {
-            _client->abort();
-          }
-          return;
-        }
-
-        memcpy(copy, data, datalen);
-        copy[datalen] = 0;
-
-        _server->_handleEvent(this, WS_EVT_DATA, (void *)&_pinfo, copy, datalen);
-
-        free(copy);
+        async_ws_log_v(
+          "WS[%" PRIu32 "] processing next fragment of %s frame %" PRIu32 ", index: %" PRIu64 ", len: %" PRIu32 "", _clientId,
+          (_pinfo.message_opcode == WS_TEXT) ? "text" : "binary", _pinfo.num, _pinfo.index, (uint32_t)datalen
+        );
+        _handleDataEvent(data, datalen, datalen == plen);  // datalen == plen means that we are processing the last part of the current TCP packet
       }
 
       // track index for next fragment
       _pinfo.index += datalen;
 
-    } else if ((datalen + _pinfo.index) == _pinfo.len) {
+    } else if ((datalen + _pinfo.index) == _pinfo.len) {  // this is the last fragment for this frame
       _pstate = STATE_FRAME_START;
-      async_ws_log_v("WS[%" PRIu32 "]: processing final fragment index=%" PRIu64 ", len=%" PRIu32 "", _clientId, _pinfo.index, (uint32_t)datalen);
 
       if (_pinfo.opcode == WS_DISCONNECT) {
-        async_ws_log_v("WS[%" PRIu32 "]: processing disconnect", _clientId);
+        async_ws_log_v("WS[%" PRIu32 "] processing disconnect", _clientId);
 
         if (datalen) {
           uint16_t reasonCode = (uint16_t)(data[0] << 8) + data[1];
@@ -714,49 +699,29 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
         }
 
       } else if (_pinfo.opcode == WS_PING) {
-        async_ws_log_v("WS[%" PRIu32 "]: processing ping", _clientId);
+        async_ws_log_v("WS[%" PRIu32 "] processing ping", _clientId);
         _server->_handleEvent(this, WS_EVT_PING, NULL, NULL, 0);
         _queueControl(WS_PONG, data, datalen);
 
       } else if (_pinfo.opcode == WS_PONG) {
-        async_ws_log_v("WS[%" PRIu32 "]: processing pong", _clientId);
+        async_ws_log_v("WS[%" PRIu32 "] processing pong", _clientId);
         if (datalen != AWSC_PING_PAYLOAD_LEN || memcmp(AWSC_PING_PAYLOAD, data, AWSC_PING_PAYLOAD_LEN) != 0) {
           _server->_handleEvent(this, WS_EVT_PONG, NULL, NULL, 0);
         }
 
       } else if (_pinfo.opcode < WS_DISCONNECT) {  // continuation or text/binary frame
-        async_ws_log_v("WS[%" PRIu32 "]: processing data frame num=%" PRIu32 "", _clientId, _pinfo.num);
+        async_ws_log_v(
+          "WS[%" PRIu32 "] processing final fragment of %s frame %" PRIu32 ", index: %" PRIu64 ", len: %" PRIu32 "", _clientId,
+          (_pinfo.message_opcode == WS_TEXT) ? "text" : "binary", _pinfo.num, _pinfo.index, (uint32_t)datalen
+        );
 
-        // ------------------------------------------------------------
-        // Issue 384: https://github.com/ESP32Async/ESPAsyncWebServer/issues/384
-        // Discussion: https://github.com/ESP32Async/ESPAsyncWebServer/pull/383#discussion_r2760425739
-        // The initial design of the library was doing a backup of the byte following the data buffer because the client code
-        // was allowed and documented to do something like data[len] = 0; to facilitate null-terminated string handling.
-        // This was a bit hacky but it was working and it was documented, although completely incorrect because it was modifying a byte outside of the data buffer.
-        // So to fix this behavior and to avoid breaking existing client code that may be relying on this behavior, we now have to copy the data to a temporary buffer that has an extra byte for the null terminator.
-        // ------------------------------------------------------------
-        uint8_t *copy = (uint8_t *)malloc(datalen + 1);
+        _handleDataEvent(data, datalen, datalen == plen);  // datalen == plen means that we are processing the last part of the current TCP packet
 
-        if (copy == NULL) {
-          async_ws_log_e("Failed to allocate");
-          _status = WS_DISCONNECTED;
-          if (_client) {
-            _client->abort();
-          }
-          return;
-        }
-
-        memcpy(copy, data, datalen);
-        copy[datalen] = 0;
-
-        _server->_handleEvent(this, WS_EVT_DATA, (void *)&_pinfo, copy, datalen);
         if (_pinfo.final) {
           _pinfo.num = 0;
         } else {
           _pinfo.num += 1;
         }
-
-        free(copy);
       }
 
     } else {
@@ -775,6 +740,52 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
 
     data += datalen;
     plen -= datalen;
+  }
+}
+
+void AsyncWebSocketClient::_handleDataEvent(uint8_t *data, size_t len, bool endOfPaquet) {
+  // ------------------------------------------------------------
+  // Issue 384: https://github.com/ESP32Async/ESPAsyncWebServer/issues/384
+  // Discussion: https://github.com/ESP32Async/ESPAsyncWebServer/pull/383#discussion_r2760425739
+  // The initial design of the library was doing a backup of the byte following the data buffer because the client code
+  // was allowed and documented to do something like data[len] = 0; to facilitate null-terminated string handling.
+  // This was a bit hacky but it was working and it was documented, although completely incorrect because it was modifying a byte outside of the data buffer.
+  // So to fix this behavior and to avoid breaking existing client code that may be relying on this behavior, we now have to copy the data to a temporary buffer that has an extra byte for the null terminator.
+  // ------------------------------------------------------------
+  //
+  // Optimization notes:
+  //
+  // 1) opcodes
+  //
+  // - info->opcode stores the current WS frame type (binary, text, continuation)
+  // - info->message_opcode stores the WS frame type of the first frame of the message, which is used for fragmented messages to know the message type when processing subsequent frame with opcode 0 (continuation)
+  // So we can use info->message_opcode to avoid copying the data for non-text frames, and only copy the data for text frames when we need to add a null terminator for client code convenience.
+  //
+  // 2) data copy vs data backup/restore
+  // - endOfPaquet: is true when datalen == plen. plen is the remaining bytes in the current TCP packet, so if datalen == plen, it means that we are processing the last part of the current TCP packet.
+  // In that case, we have to copy since we cannot backup/restore the byte after the data buffer.
+  // Otherwise we can backup the byte and restore since we know that the byte after is owned by the current TCP packet (same pointer).
+  if (_pinfo.message_opcode == WS_TEXT) {
+    if (endOfPaquet) {
+      std::unique_ptr<uint8_t[]> copy(new (std::nothrow) uint8_t[len + 1]());
+      if (copy) {
+        memcpy(copy.get(), data, len);
+        copy[len] = 0;
+        _server->_handleEvent(this, WS_EVT_DATA, (void *)&_pinfo, copy.get(), len);
+      } else {
+        async_ws_log_e("Failed to allocate");
+        if (_client) {
+          _client->abort();
+        }
+      }
+    } else {
+      uint8_t backup = data[len];
+      data[len] = 0;
+      _server->_handleEvent(this, WS_EVT_DATA, (void *)&_pinfo, data, len);
+      data[len] = backup;
+    }
+  } else {
+    _server->_handleEvent(this, WS_EVT_DATA, (void *)&_pinfo, data, len);
   }
 }
 
