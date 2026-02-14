@@ -123,7 +123,7 @@ handler->setLastModified(date_modified);
 ### Specifying Template Processor callback
 
 It is possible to specify template processor for static files. For information on template processor see
-[Respond with content coming from a File containing templates](#respond-with-content-coming-from-a-file-containing-templates).
+[Respond with content coming from a File containing templates](responses.md#respond-with-content-coming-from-a-file-containing-templates).
 
 ```cpp
 String processor(const String& var)
@@ -206,5 +206,5 @@ webServer.onNotFound([](AsyncWebServerRequest *request) {
 });
 ```
 
-You may want to try [Respond with file content using a callback and extra headers](#respond-with-file-content-using-a-callback-and-extra-headers)
+You may want to try [Respond with file content using a callback and extra headers](responses.md#respond-with-file-content-using-a-callback-and-extra-headers)
 For actual serving the file.

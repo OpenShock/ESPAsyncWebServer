@@ -139,7 +139,7 @@ void loop(){
 }
 ```
 
-**IMPORTANT**: Authentication should now use `AsyncAuthenticationMiddleware` instead of the deprecated methods. See the [How to use authentication with AsyncAuthenticationMiddleware](middleware.md#how-to-use-authentication-with-asyncauthenticationmiddleware) section.
+**IMPORTANT**: Authentication should now use `AsyncAuthenticationMiddleware` instead of the deprecated methods. See the [Authentication with AsyncAuthenticationMiddleware](middleware.md#authentication-with-asyncauthenticationmiddleware) section.
 
 ### Setup global and class functions as request handlers
 

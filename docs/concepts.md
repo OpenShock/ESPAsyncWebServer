@@ -71,4 +71,4 @@
 - Placeholders are delimited with `%` symbols. Like this: `%TEMPLATE_PLACEHOLDER%`.
 - It works by extracting placeholder name from response text and passing it to user provided function which should return actual value to be used instead of placeholder.
 - Since it's user provided function, it is possible for library users to implement conditional processing and cycles themselves.
-- Since it's impossible to know the actual response size after template processing step in advance (and, therefore, to include it in response headers), the response becomes [chunked](#chunked-response).
+- Since it's impossible to know the actual response size after template processing step in advance (and, therefore, to include it in response headers), the response becomes [chunked](responses.md#chunked-response).
