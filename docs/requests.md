@@ -156,4 +156,3 @@ server.addHandler(handler);
 ```
 
 See the [MessagePack example here](../examples/MessagePack/MessagePack.ino).
-

@@ -65,4 +65,3 @@ server.serveStatic("/", LittleFS, "/www/");
   RedirectUrl += "/index.htm";
   request->redirect(RedirectUrl);
 ```
-

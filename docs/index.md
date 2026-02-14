@@ -51,4 +51,3 @@ Supports: WebSocket, SSE, Authentication, Arduino Json 7, MessagePack, File Uplo
 - [WebSerial](https://github.com/ayushsharma82/WebSerial) - A remote terminal library for wireless microcontrollers to log, monitor or debug your firmware/product
 - [WebSocketToSerial](https://github.com/hallard/WebSocketToSerial) - Debug serial devices through the web browser
 - [YaSolR (Yet another Solar Router)](https://yasolr.carbou.me) - Heat water with your Solar Production Excess with the more powerful and precise solar diverter out there!
-

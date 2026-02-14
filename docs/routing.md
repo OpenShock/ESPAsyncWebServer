@@ -149,4 +149,3 @@ server.onNotFound(NULL);
 // remove all rewrites, handlers and onNotFound/onFileUpload/onRequestBody callbacks
 server.reset();
 ```
-

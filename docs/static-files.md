@@ -208,4 +208,3 @@ webServer.onNotFound([](AsyncWebServerRequest *request) {
 
 You may want to try [Respond with file content using a callback and extra headers](#respond-with-file-content-using-a-callback-and-extra-headers)
 For actual serving the file.
-

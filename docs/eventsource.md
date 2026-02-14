@@ -90,4 +90,3 @@ if (!!window.EventSource) {
   );
 }
 ```
-

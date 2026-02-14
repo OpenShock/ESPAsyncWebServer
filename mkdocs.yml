@@ -53,3 +53,5 @@ nav:
   - Serving Static Files: static-files.md
   - Filters & Rewrites: filters.md
   - Setup & Helpers: setup.md
+  - Help & Issues: help_and_issues.md
+  - Code of Conduct: code_of_conduct.md
