@@ -1,37 +1,4 @@
-# Setup
-
-## Scanning for available WiFi Networks
-
-```cpp
-//First request will return 0 results unless you start scan from somewhere else (loop/setup)
-//Do not request more often than 3-5 seconds
-server.on("/scan", HTTP_GET, [](AsyncWebServerRequest *request){
-  String json = "[";
-  int n = WiFi.scanComplete();
-  if(n == -2){
-    WiFi.scanNetworks(true);
-  } else if(n){
-    for (int i = 0; i < n; ++i){
-      if(i) json += ",";
-      json += "{";
-      json += "\"rssi\":"+String(WiFi.RSSI(i));
-      json += ",\"ssid\":\""+WiFi.SSID(i)+"\"";
-      json += ",\"bssid\":\""+WiFi.BSSIDstr(i)+"\"";
-      json += ",\"channel\":"+String(WiFi.channel(i));
-      json += ",\"secure\":"+String(WiFi.encryptionType(i));
-      json += ",\"hidden\":"+String(WiFi.isHidden(i)?"true":"false");
-      json += "}";
-    }
-    WiFi.scanDelete();
-    if(WiFi.scanComplete() == -2){
-      WiFi.scanNetworks(true);
-    }
-  }
-  json += "]";
-  request->send(200, "application/json", json);
-  json = String();
-});
-```
+# Server Setup
 
 ## Setting up the server
 
@@ -172,7 +139,7 @@ void loop(){
 }
 ```
 
-**IMPORTANT**: Authentication should now use `AsyncAuthenticationMiddleware` instead of the deprecated methods. See the [How to use authentication with AsyncAuthenticationMiddleware](#how-to-use-authentication-with-asyncauthenticationmiddleware) section.
+**IMPORTANT**: Authentication should now use `AsyncAuthenticationMiddleware` instead of the deprecated methods. See the [How to use authentication with AsyncAuthenticationMiddleware](middleware.md#how-to-use-authentication-with-asyncauthenticationmiddleware) section.
 
 ### Setup global and class functions as request handlers
 
@@ -228,97 +195,3 @@ void loop() {
   if ( !ws.enabled() )
     ws.enable(true);
 ```
-
-Example of OTA code
-
-```cpp
-  // OTA callbacks
-  ArduinoOTA.onStart([]() {
-    // Clean SPIFFS
-    SPIFFS.end();
-
-    // Clean LittleFS
-    LittleFS.end();
-
-    // Disable client connections
-    ws.enable(false);
-
-    // Advertise connected clients what's going on
-    ws.textAll("OTA Update Started");
-
-    // Close them
-    ws.closeAll();
-
-  });
-
-```
-
-See the [EndBegin example here](../examples/EndBegin/EndBegin.ino).
-
-### Adding Default Headers
-
-In some cases, such as when working with CORS, or with some sort of custom authentication system,
-you might need to define a header that should get added to all responses (including static, websocket and EventSource).
-The DefaultHeaders singleton allows you to do this.
-
-Example:
-
-```cpp
-DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
-webServer.begin();
-```
-
-_NOTE_: You will still need to respond to the OPTIONS method for CORS pre-flight in most cases. (unless you are only using GET)
-
-This is one option:
-
-```cpp
-webServer.onNotFound([](AsyncWebServerRequest *request) {
-  if (request->method() == HTTP_OPTIONS) {
-    request->send(200);
-  } else {
-    request->send(404);
-  }
-});
-```
-
-See the [CORS example here](../examples/CORS/CORS.ino).
-
-### Path variable
-
-With path variable you can create a custom regex rule for a specific parameter in a route.
-For example we want a `sensorId` parameter in a route rule to match only a integer.
-
-```cpp
-  server.on("^\\/sensor\\/([0-9]+)$", HTTP_GET, [] (AsyncWebServerRequest *request) {
-      String sensorId = request->pathArg(0);
-  });
-```
-
-_NOTE_: All regex patterns starts with `^` and ends with `$`
-
-To enable the `Path variable` support, you have to define the buildflag `-DASYNCWEBSERVER_REGEX`.
-
-For Arduino IDE create/update `platform.local.txt`:
-
-`Windows`: C:\Users\(username)\AppData\Local\Arduino15\packages\\`{espxxxx}`\hardware\\`espxxxx`\\`{version}`\platform.local.txt
-
-`Linux`: ~/.arduino15/packages/`{espxxxx}`/hardware/`{espxxxx}`/`{version}`/platform.local.txt
-
-Add/Update the following line:
-
-```
-  compiler.cpp.extra_flags=-DASYNCWEBSERVER_REGEX
-```
-
-For platformio modify `platformio.ini`:
-
-```ini
-[env:myboard]
-build_flags =
-  -DASYNCWEBSERVER_REGEX
-```
-
-_NOTE_: By enabling `ASYNCWEBSERVER_REGEX`, `<regex>` will be included. This will add an 100k to your binary.
-
-See the [URIMatcher example here](../examples/URIMatcher/URIMatcher.ino) and [URIMatcherTest example here](../examples/URIMatcherTest/URIMatcherTest.ino).

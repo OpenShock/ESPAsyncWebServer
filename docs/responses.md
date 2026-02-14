@@ -15,7 +15,7 @@
 
 This will send error 400 instead of 200.
 
-See the [example here](../examples/Replace/Replace.ino).
+See the [example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/Replace/Replace.ino).
 
 ## Request Continuation
 
@@ -63,7 +63,7 @@ if (auto request = requestPtr.lock()) {
 }
 ```
 
-See the [RequestContinuation example here](../examples/RequestContinuation/RequestContinuation.ino) and [RequestContinuationComplete example here](../examples/RequestContinuationComplete/RequestContinuationComplete.ino).
+See the [RequestContinuation example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/RequestContinuation/RequestContinuation.ino) and [RequestContinuationComplete example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/RequestContinuationComplete/RequestContinuationComplete.ino).
 
 ## Responses
 
@@ -77,7 +77,7 @@ request->redirect("/login");
 request->redirect("http://esp8266.com");
 ```
 
-See the [Redirect example here](../examples/Redirect/Redirect.ino).
+See the [Redirect example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/Redirect/Redirect.ino).
 
 ### Basic response with HTTP Code
 
@@ -139,7 +139,7 @@ const char index_html[] PROGMEM = "..."; // large char array, tested with 14k
 request->send_P(200, "text/html", index_html, processor);
 ```
 
-See the [Templates example here](../examples/Templates/Templates.ino).
+See the [Templates example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/Templates/Templates.ino).
 
 ### Send large webpage from PROGMEM containing templates and extra headers
 
@@ -291,7 +291,7 @@ request->send(LittleFS, "/index.htm", "text/plain");
 request->send(LittleFS, "/index.htm", String(), true);
 ```
 
-See the [StaticFile example here](../examples/StaticFile/StaticFile.ino).
+See the [StaticFile example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/StaticFile/StaticFile.ino).
 
 ### Respond with content coming from a File and extra headers
 
@@ -361,7 +361,7 @@ request->send("text/plain", 128, [](uint8_t *buffer, size_t maxLen, size_t index
 });
 ```
 
-See the [ChunkResponse example here](../examples/ChunkResponse/ChunkResponse.ino).
+See the [ChunkResponse example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/ChunkResponse/ChunkResponse.ino).
 
 ### Respond with content using a callback and extra headers
 
@@ -507,7 +507,7 @@ response->addHeader("Server","ESP Async Web Server");
 request->send(response);
 ```
 
-See the [ChunkRequest example here](../examples/ChunkRequest/ChunkRequest.ino) and [ChunkRetryResponse example here](../examples/ChunkRetryResponse/ChunkRetryResponse.ino).
+See the [ChunkRequest example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/ChunkRequest/ChunkRequest.ino) and [ChunkRetryResponse example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/ChunkRetryResponse/ChunkRetryResponse.ino).
 
 ### Chunked Response containing templates
 
@@ -585,7 +585,7 @@ response->print("</body></html>");
 request->send(response);
 ```
 
-See the [AsyncResponseStream example here](../examples/AsyncResponseStream/AsyncResponseStream.ino).
+See the [AsyncResponseStream example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/AsyncResponseStream/AsyncResponseStream.ino).
 
 ### ArduinoJson Basic Response
 
@@ -624,7 +624,7 @@ response->setLength();
 request->send(response);
 ```
 
-See the [Json example here](../examples/Json/Json.ino).
+See the [Json example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/Json/Json.ino).
 
 ### MessagePack Response
 
@@ -643,7 +643,36 @@ response->setLength();
 request->send(response);
 ```
 
-See the [MessagePack example here](../examples/MessagePack/MessagePack.ino).
+See the [MessagePack example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/MessagePack/MessagePack.ino).
+
+## Adding Default Headers
+
+In some cases, such as when working with CORS, or with some sort of custom authentication system,
+you might need to define a header that should get added to all responses (including static, websocket and EventSource).
+The DefaultHeaders singleton allows you to do this.
+
+Example:
+
+```cpp
+DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
+webServer.begin();
+```
+
+_NOTE_: You will still need to respond to the OPTIONS method for CORS pre-flight in most cases. (unless you are only using GET)
+
+This is one option:
+
+```cpp
+webServer.onNotFound([](AsyncWebServerRequest *request) {
+  if (request->method() == HTTP_OPTIONS) {
+    request->send(200);
+  } else {
+    request->send(404);
+  }
+});
+```
+
+See the [CORS example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/CORS/CORS.ino).
 
 ## Bad Responses
 

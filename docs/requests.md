@@ -44,7 +44,46 @@ if(request->hasHeader("MyHeader")){
 }
 ```
 
-See the [Headers example here](../examples/Headers/Headers.ino).
+See the [Headers example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/Headers/Headers.ino).
+
+## Path Variable
+
+With path variable you can create a custom regex rule for a specific parameter in a route.
+For example we want a `sensorId` parameter in a route rule to match only a integer.
+
+```cpp
+  server.on("^\\/sensor\\/([0-9]+)$", HTTP_GET, [] (AsyncWebServerRequest *request) {
+      String sensorId = request->pathArg(0);
+  });
+```
+
+_NOTE_: All regex patterns starts with `^` and ends with `$`
+
+To enable the `Path variable` support, you have to define the buildflag `-DASYNCWEBSERVER_REGEX`.
+
+For Arduino IDE create/update `platform.local.txt`:
+
+`Windows`: C:\Users\(username)\AppData\Local\Arduino15\packages\\`{espxxxx}`\hardware\\`espxxxx`\\`{version}`\platform.local.txt
+
+`Linux`: ~/.arduino15/packages/`{espxxxx}`/hardware/`{espxxxx}`/`{version}`/platform.local.txt
+
+Add/Update the following line:
+
+```
+  compiler.cpp.extra_flags=-DASYNCWEBSERVER_REGEX
+```
+
+For platformio modify `platformio.ini`:
+
+```ini
+[env:myboard]
+build_flags =
+  -DASYNCWEBSERVER_REGEX
+```
+
+_NOTE_: By enabling `ASYNCWEBSERVER_REGEX`, `<regex>` will be included. This will add an 100k to your binary.
+
+See the [URIMatcher example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/URIMatcher/URIMatcher.ino) and [URIMatcherTest example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/URIMatcherTest/URIMatcherTest.ino).
 
 ### GET, POST and FILE parameters
 
@@ -85,7 +124,7 @@ if(request->hasArg("download"))
   String arg = request->arg("download");
 ```
 
-See the [Params example here](../examples/Params/Params.ino).
+See the [Params example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/Params/Params.ino).
 
 ### FILE Upload handling
 
@@ -103,7 +142,7 @@ void handleUpload(AsyncWebServerRequest *request, String filename, size_t index,
 }
 ```
 
-See the [Upload example here](../examples/Upload/Upload.ino).
+See the [Upload example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/Upload/Upload.ino).
 
 ### Body data handling
 
@@ -138,7 +177,7 @@ AsyncCallbackJsonWebHandler* handler = new AsyncCallbackJsonWebHandler("/rest/en
 server.addHandler(handler);
 ```
 
-See the [Json example here](../examples/Json/Json.ino).
+See the [Json example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/Json/Json.ino).
 
 ### MessagePack body handling
 
@@ -155,4 +194,4 @@ AsyncCallbackMessagePackWebHandler* handler = new AsyncCallbackMessagePackWebHan
 server.addHandler(handler);
 ```
 
-See the [MessagePack example here](../examples/MessagePack/MessagePack.ino).
+See the [MessagePack example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/MessagePack/MessagePack.ino).

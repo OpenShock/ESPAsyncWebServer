@@ -44,6 +44,7 @@ nav:
   - Installation: installation.md
   - Configuration: configuration.md
   - Usage Concepts: concepts.md
+  - Server Setup: setup.md
   - Routing & Matching: routing.md
   - Requests: requests.md
   - Responses: responses.md
@@ -52,6 +53,5 @@ nav:
   - Event Source (SSE): eventsource.md
   - Serving Static Files: static-files.md
   - Filters & Rewrites: filters.md
-  - Setup & Helpers: setup.md
   - Help & Issues: help_and_issues.md
   - Code of Conduct: code_of_conduct.md
