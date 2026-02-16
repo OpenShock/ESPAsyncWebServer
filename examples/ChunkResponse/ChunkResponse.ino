@@ -98,7 +98,7 @@ void setup() {
   // curl -N -v -H "if-none-match: 4272" http://192.168.4.1/ --output -
   //
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-    String etag = String(htmlContentLength);
+    String etag = "\"" + String(htmlContentLength) + "\"";  // RFC9110: ETag must be enclosed in double quotes
 
     if (request->header(asyncsrv::T_INM) == etag) {
       request->send(304);

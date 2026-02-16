@@ -25,6 +25,10 @@
 #include <memory>
 #include <utility>
 
+#define STATE_FRAME_START 0
+#define STATE_FRAME_MASK  1
+#define STATE_FRAME_DATA  2
+
 using namespace asyncsrv;
 
 size_t webSocketSendFrameWindow(AsyncClient *client) {
@@ -160,49 +164,54 @@ bool AsyncWebSocketMessageBuffer::reserve(size_t size) {
 AsyncWebSocketMessage::AsyncWebSocketMessage(AsyncWebSocketSharedBuffer buffer, uint8_t opcode, bool mask)
   : _WSbuffer{buffer}, _opcode(opcode & 0x07), _mask{mask}, _status{_WSbuffer ? WS_MSG_SENDING : WS_MSG_ERROR} {}
 
-void AsyncWebSocketMessage::ack(size_t len, uint32_t time) {
+size_t AsyncWebSocketMessage::ack(size_t len, uint32_t time) {
   (void)time;
-  _acked += len;
+  const size_t pending = std::min(len, _ack - _acked);
+  _acked += pending;
   if (_sent >= _WSbuffer->size() && _acked >= _ack) {
     _status = WS_MSG_SENT;
   }
-  // ets_printf("A: %u\n", len);
+  async_ws_log_v("opcode: %" PRIu8 ", acked: %u/%u, left: %u/%u, status: %d", _opcode, _acked, _ack, len - pending, len, static_cast<int>(_status));
+  return len - pending;
 }
 
 size_t AsyncWebSocketMessage::send(AsyncClient *client) {
   if (!client) {
+    async_ws_log_v("No client");
     return 0;
   }
 
   if (_status != WS_MSG_SENDING) {
+    async_ws_log_v("C[%" PRIu16 "] Wrong status: got: %d, expected: %d", client->remotePort(), static_cast<int>(_status), static_cast<int>(WS_MSG_SENDING));
     return 0;
   }
-  if (_acked < _ack) {
-    return 0;
-  }
+
   if (_sent == _WSbuffer->size()) {
     if (_acked == _ack) {
       _status = WS_MSG_SENT;
     }
+    async_ws_log_v("C[%" PRIu16 "] Already sent: %u/%u", client->remotePort(), _sent, _WSbuffer->size());
     return 0;
   }
   if (_sent > _WSbuffer->size()) {
     _status = WS_MSG_ERROR;
-    // ets_printf("E: %u > %u\n", _sent, _WSbuffer->length());
+    async_ws_log_v("C[%" PRIu16 "] Error, sent more: %u/%u", client->remotePort(), _sent, _WSbuffer->size());
     return 0;
   }
 
   size_t toSend = _WSbuffer->size() - _sent;
-  size_t window = webSocketSendFrameWindow(client);
+  const size_t window = webSocketSendFrameWindow(client);
 
-  if (window < toSend) {
-    toSend = window;
+  // not enough space in lwip buffer ?
+  if (!window) {
+    async_ws_log_v("C[%" PRIu16 "] No space left to send more data: acked: %u, sent: %u, remaining: %u", client->remotePort(), _acked, _sent, toSend);
+    return 0;
   }
+
+  toSend = std::min(toSend, window);
 
   _sent += toSend;
   _ack += toSend + ((toSend < 126) ? 2 : 4) + (_mask * 4);
-
-  // ets_printf("W: %u %u\n", _sent - toSend, toSend);
 
   bool final = (_sent == _WSbuffer->size());
   uint8_t *dPtr = (uint8_t *)(_WSbuffer->data() + (_sent - toSend));
@@ -211,11 +220,11 @@ size_t AsyncWebSocketMessage::send(AsyncClient *client) {
   size_t sent = webSocketSendFrame(client, final, opCode, _mask, dPtr, toSend);
   _status = WS_MSG_SENDING;
   if (toSend && sent != toSend) {
-    // ets_printf("E: %u != %u\n", toSend, sent);
     _sent -= (toSend - sent);
     _ack -= (toSend - sent);
   }
-  // ets_printf("S: %u %u\n", _sent, sent);
+
+  async_ws_log_v("C[%" PRIu16 "] sent: %u/%u, final: %d, acked: %u/%u", client->remotePort(), _sent, _WSbuffer->size(), final, _acked, _ack);
   return sent;
 }
 
@@ -226,8 +235,8 @@ const char *AWSC_PING_PAYLOAD = "ESPAsyncWebServer-PING";
 const size_t AWSC_PING_PAYLOAD_LEN = 22;
 
 AsyncWebSocketClient::AsyncWebSocketClient(AsyncClient *client, AsyncWebSocket *server)
-  : _client(client), _server(server), _clientId(_server->_getNextId()), _status(WS_CONNECTED), _pstate(0), _lastMessageTime(millis()), _keepAlivePeriod(0),
-    _tempObject(NULL) {
+  : _client(client), _server(server), _clientId(_server->_getNextId()), _status(WS_CONNECTED), _pstate(STATE_FRAME_START), _lastMessageTime(millis()),
+    _keepAlivePeriod(0), _tempObject(NULL) {
 
   _client->setRxTimeout(0);
   _client->onError(
@@ -324,7 +333,12 @@ void AsyncWebSocketClient::_onAck(size_t len, uint32_t time) {
   }
 
   if (len && !_messageQueue.empty()) {
-    _messageQueue.front().ack(len, time);
+    for (auto &msg : _messageQueue) {
+      len = msg.ack(len, time);
+      if (len == 0) {
+        break;
+      }
+    }
   }
 
   _clearQueue();
@@ -358,11 +372,52 @@ void AsyncWebSocketClient::_runQueue() {
 
   _clearQueue();
 
-  if (!_controlQueue.empty() && (_messageQueue.empty() || _messageQueue.front().betweenFrames())
-      && webSocketSendFrameWindow(_client) > (size_t)(_controlQueue.front().len() - 1)) {
-    _controlQueue.front().send(_client);
-  } else if (!_messageQueue.empty() && _messageQueue.front().betweenFrames() && webSocketSendFrameWindow(_client)) {
-    _messageQueue.front().send(_client);
+  size_t space = webSocketSendFrameWindow(_client);
+
+  if (space) {
+    // control frames have priority over message frames
+    // we can send a control frame if:
+    // - there is no message frame in the queue, or the first message frame is between frames (all bytes sent are acked)
+    // - the control frame is not finished (not sent yet)
+    // - there is enough space to send the control frame (control frames are small, at most 129 bytes, so we can assume that if there is space to send it, it can be sent in one go)
+    if (_messageQueue.empty() || _messageQueue.front().betweenFrames()) {
+      for (auto &ctrl : _controlQueue) {
+        if (ctrl.finished()) {
+          continue;
+        }
+        if (space > (size_t)(ctrl.len() - 1)) {
+          async_ws_log_v("WS[%" PRIu32 "] Sending control frame: %" PRIu8 ", len: %" PRIu8, _clientId, ctrl.opcode(), ctrl.len());
+          ctrl.send(_client);
+          space = webSocketSendFrameWindow(_client);
+        }
+      }
+    }
+
+    // then we can send message frames if there is space
+    if (space) {
+      for (auto &msg : _messageQueue) {
+        if (msg._remainingBytesToSend()) {
+          async_ws_log_v(
+            "WS[%" PRIu32 "] Send message fragment: %u/%u, acked: %u/%u", _clientId, msg._remainingBytesToSend(), msg._sent + msg._remainingBytesToSend(),
+            msg._acked, msg._ack
+          );
+          // will use all the remaining space, or all the remaining bytes to send, whichever is smaller
+          msg.send(_client);
+          space = webSocketSendFrameWindow(_client);
+
+          // If we haven't finished sending this message, we must stop here to preserve WebSocket ordering.
+          // We can only pipeline subsequent messages if the current one is fully passed to TCP buffer.
+          if (msg._remainingBytesToSend()) {
+            break;
+          }
+        }
+
+        // not enough space for another message
+        if (!space) {
+          break;
+        }
+      }
+    }
   }
 }
 
@@ -508,8 +563,13 @@ void AsyncWebSocketClient::_onDisconnect() {
 void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
   _lastMessageTime = millis();
   uint8_t *data = (uint8_t *)pbuf;
+
   while (plen > 0) {
-    if (!_pstate) {
+    async_ws_log_v(
+      "WS[%" PRIu32 "] _onData: plen: %" PRIu32 ", _pstate: %" PRIu8 ", _status: %" PRIu8, _clientId, plen, _pstate, static_cast<uint8_t>(_status)
+    );
+
+    if (_pstate == STATE_FRAME_START) {
       const uint8_t *fdata = data;
 
       _pinfo.index = 0;
@@ -517,13 +577,6 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
       _pinfo.opcode = fdata[0] & 0x0F;
       _pinfo.masked = ((fdata[1] & 0x80) != 0) ? 1 : 0;
       _pinfo.len = fdata[1] & 0x7F;
-
-      // async_ws_log_w("WS[%" PRIu32 "]: _onData: %" PRIu32, _clientId, plen);
-      // async_ws_log_w("WS[%" PRIu32 "]: _status = %" PRIu32, _clientId, _status);
-      // async_ws_log_w(
-      //   "WS[%" PRIu32 "]: _pinfo: index: %" PRIu64 ", final: %" PRIu8 ", opcode: %" PRIu8 ", masked: %" PRIu8 ", len: %" PRIu64, _clientId, _pinfo.index,
-      //   _pinfo.final, _pinfo.opcode, _pinfo.masked, _pinfo.len
-      // );
 
       data += 2;
       plen -= 2;
@@ -541,47 +594,51 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
       }
     }
 
-    if (_pinfo.masked) {
-      // Read mask bytes (may be fragmented across packets in Safari)
-      size_t mask_offset = 0;
+    async_ws_log_v(
+      "WS[%" PRIu32 "] _pinfo: index: %" PRIu64 ", final: %" PRIu8 ", opcode: %" PRIu8 ", masked: %" PRIu8 ", len: %" PRIu64, _clientId, _pinfo.index,
+      _pinfo.final, _pinfo.opcode, _pinfo.masked, _pinfo.len
+    );
 
-      // If we're resuming from a previous fragmented read, check _pinfo.index
-      if (_pstate == 1 && _pinfo.index < 4) {
-        mask_offset = _pinfo.index;
-      }
-
-      // Read as many mask bytes as available
-      while (mask_offset < 4 && plen > 0) {
-        _pinfo.mask[mask_offset++] = *data++;
-        plen--;
-      }
-
-      // Check if we have all 4 mask bytes
-      if (mask_offset < 4) {
-        // Incomplete mask
-        if (_pinfo.opcode == WS_DISCONNECT && plen == 0) {
-          // Safari close frame edge case: masked bit set but no mask data
-          // async_ws_log_w("WS[%" PRIu32 "]: close frame with incomplete mask, treating as unmasked", _clientId);
+    // Handle fragmented mask data - Safari may split the 4-byte mask across multiple packets
+    // _pinfo.masked is 1 if we need to start reading mask bytes
+    // _pinfo.masked is 2, 3, or 4 if we have partially read the mask
+    // _pinfo.masked is 5 if the mask is complete
+    while (_pinfo.masked && _pstate <= STATE_FRAME_MASK && _pinfo.masked < 5) {
+      // check if we have some data
+      if (plen == 0) {
+        // Safari close frame edge case: masked bit set but no mask data
+        if (_pinfo.opcode == WS_DISCONNECT) {
+          async_ws_log_v("WS[%" PRIu32 "] close frame with incomplete mask, treating as unmasked", _clientId);
           _pinfo.masked = 0;
           _pinfo.index = 0;
-        } else {
-          // Wait for more data
-          // async_ws_log_w("WS[%" PRIu32 "]: waiting for more mask data: read=%zu/4", _clientId, mask_offset);
-          _pinfo.index = mask_offset;  // Save progress
-          _pstate = 1;
-          return;
+          _pinfo.len = 0;
+          _pstate = STATE_FRAME_START;
+          break;
         }
-      } else {
-        // All mask bytes received
-        // async_ws_log_w("WS[%" PRIu32 "]: mask complete", _clientId);
-        _pinfo.index = 0;  // Reset index for payload processing
+
+        //wait for more data
+        _pstate = STATE_FRAME_MASK;
+        async_ws_log_v("WS[%" PRIu32 "] waiting for more mask data: read: %" PRIu8 "/4", _clientId, _pinfo.masked - 1);
+        return;
       }
+
+      // accumulate mask bytes
+      _pinfo.mask[_pinfo.masked - 1] = data[0];
+      data += 1;
+      plen -= 1;
+      _pinfo.masked++;
+    }
+
+    // all mask bytes read if we were reading them
+    _pstate = STATE_FRAME_DATA;
+
+    // restore masked to 1 for backward compatibility
+    if (_pinfo.masked >= 5) {
+      async_ws_log_v("WS[%" PRIu32 "] mask read complete", _clientId);
+      _pinfo.masked = 1;
     }
 
     const size_t datalen = std::min((size_t)(_pinfo.len - _pinfo.index), plen);
-    const auto datalast = data[datalen];
-
-    // async_ws_log_w("WS[%" PRIu32 "]: _processing data: datalen=%" PRIu32 ", plen=%" PRIu32, _clientId, datalen, plen);
 
     if (_pinfo.masked) {
       for (size_t i = 0; i < datalen; i++) {
@@ -589,23 +646,38 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
       }
     }
 
-    if ((datalen + _pinfo.index) < _pinfo.len) {
-      _pstate = 1;
-
-      if (_pinfo.index == 0) {
-        if (_pinfo.opcode) {
-          _pinfo.message_opcode = _pinfo.opcode;
-          _pinfo.num = 0;
-        }
+    if (_pinfo.index == 0) {  // first fragment of the frame
+      // init message_opcode for this frame
+      // note: For next WS_CONTINUATION frames, they have opcode 0, so message_opcode will stay like the first frame
+      if (_pinfo.opcode == WS_TEXT || _pinfo.opcode == WS_BINARY) {
+        _pinfo.message_opcode = _pinfo.opcode;
       }
+      // init frame number to 0 if only 1 frame or if this is the first frame of a fragmented message
+      if (_pinfo.final || datalen < _pinfo.len) {
+        _pinfo.num = 0;
+      }
+    }
+
+    if ((datalen + _pinfo.index) < _pinfo.len) {  // more fragments to read for this frame
+      _pstate = STATE_FRAME_DATA;
+
       if (datalen > 0) {
-        _server->_handleEvent(this, WS_EVT_DATA, (void *)&_pinfo, data, datalen);
+        async_ws_log_v(
+          "WS[%" PRIu32 "] processing next fragment of %s frame %" PRIu32 ", index: %" PRIu64 ", len: %" PRIu32 "", _clientId,
+          (_pinfo.message_opcode == WS_TEXT) ? "text" : "binary", _pinfo.num, _pinfo.index, (uint32_t)datalen
+        );
+        _handleDataEvent(data, datalen, datalen == plen);  // datalen == plen means that we are processing the last part of the current TCP packet
       }
 
+      // track index for next fragment
       _pinfo.index += datalen;
-    } else if ((datalen + _pinfo.index) == _pinfo.len) {
-      _pstate = 0;
+
+    } else if ((datalen + _pinfo.index) == _pinfo.len) {  // this is the last fragment for this frame
+      _pstate = STATE_FRAME_START;
+
       if (_pinfo.opcode == WS_DISCONNECT) {
+        async_ws_log_v("WS[%" PRIu32 "] processing disconnect", _clientId);
+
         if (datalen) {
           uint16_t reasonCode = (uint16_t)(data[0] << 8) + data[1];
           char *reasonString = (char *)(data + 2);
@@ -625,34 +697,95 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
           }
           _queueControl(WS_DISCONNECT, data, datalen);
         }
+
       } else if (_pinfo.opcode == WS_PING) {
+        async_ws_log_v("WS[%" PRIu32 "] processing ping", _clientId);
         _server->_handleEvent(this, WS_EVT_PING, NULL, NULL, 0);
         _queueControl(WS_PONG, data, datalen);
+
       } else if (_pinfo.opcode == WS_PONG) {
+        async_ws_log_v("WS[%" PRIu32 "] processing pong", _clientId);
         if (datalen != AWSC_PING_PAYLOAD_LEN || memcmp(AWSC_PING_PAYLOAD, data, AWSC_PING_PAYLOAD_LEN) != 0) {
           _server->_handleEvent(this, WS_EVT_PONG, NULL, NULL, 0);
         }
+
       } else if (_pinfo.opcode < WS_DISCONNECT) {  // continuation or text/binary frame
-        _server->_handleEvent(this, WS_EVT_DATA, (void *)&_pinfo, data, datalen);
+        async_ws_log_v(
+          "WS[%" PRIu32 "] processing final fragment of %s frame %" PRIu32 ", index: %" PRIu64 ", len: %" PRIu32 "", _clientId,
+          (_pinfo.message_opcode == WS_TEXT) ? "text" : "binary", _pinfo.num, _pinfo.index, (uint32_t)datalen
+        );
+
+        _handleDataEvent(data, datalen, datalen == plen);  // datalen == plen means that we are processing the last part of the current TCP packet
+
         if (_pinfo.final) {
           _pinfo.num = 0;
         } else {
           _pinfo.num += 1;
         }
       }
-    } else {
-      // async_ws_log_w("frame error: len: %u, index: %llu, total: %llu\n", datalen, _pinfo.index, _pinfo.len);
-      // what should we do?
-      break;
-    }
 
-    // restore byte as _handleEvent may have added a null terminator i.e., data[len] = 0;
-    if (datalen) {
-      data[datalen] = datalast;
+    } else {
+      // unexpected frame error, close connection
+      _pstate = STATE_FRAME_START;
+
+      async_ws_log_v("frame error: len: %u, index: %llu, total: %llu\n", datalen, _pinfo.index, _pinfo.len);
+
+      _status = WS_DISCONNECTING;
+      if (_client) {
+        _client->ackLater();
+      }
+      _queueControl(WS_DISCONNECT, data, datalen);
+      break;
     }
 
     data += datalen;
     plen -= datalen;
+  }
+}
+
+void AsyncWebSocketClient::_handleDataEvent(uint8_t *data, size_t len, bool endOfPaquet) {
+  // ------------------------------------------------------------
+  // Issue 384: https://github.com/ESP32Async/ESPAsyncWebServer/issues/384
+  // Discussion: https://github.com/ESP32Async/ESPAsyncWebServer/pull/383#discussion_r2760425739
+  // The initial design of the library was doing a backup of the byte following the data buffer because the client code
+  // was allowed and documented to do something like data[len] = 0; to facilitate null-terminated string handling.
+  // This was a bit hacky but it was working and it was documented, although completely incorrect because it was modifying a byte outside of the data buffer.
+  // So to fix this behavior and to avoid breaking existing client code that may be relying on this behavior, we now have to copy the data to a temporary buffer that has an extra byte for the null terminator.
+  // ------------------------------------------------------------
+  //
+  // Optimization notes:
+  //
+  // 1) opcodes
+  //
+  // - info->opcode stores the current WS frame type (binary, text, continuation)
+  // - info->message_opcode stores the WS frame type of the first frame of the message, which is used for fragmented messages to know the message type when processing subsequent frame with opcode 0 (continuation)
+  // So we can use info->message_opcode to avoid copying the data for non-text frames, and only copy the data for text frames when we need to add a null terminator for client code convenience.
+  //
+  // 2) data copy vs data backup/restore
+  // - endOfPaquet: is true when datalen == plen. plen is the remaining bytes in the current TCP packet, so if datalen == plen, it means that we are processing the last part of the current TCP packet.
+  // In that case, we have to copy since we cannot backup/restore the byte after the data buffer.
+  // Otherwise we can backup the byte and restore since we know that the byte after is owned by the current TCP packet (same pointer).
+  if (_pinfo.message_opcode == WS_TEXT) {
+    if (endOfPaquet) {
+      std::unique_ptr<uint8_t[]> copy(new (std::nothrow) uint8_t[len + 1]());
+      if (copy) {
+        memcpy(copy.get(), data, len);
+        copy[len] = 0;
+        _server->_handleEvent(this, WS_EVT_DATA, (void *)&_pinfo, copy.get(), len);
+      } else {
+        async_ws_log_e("Failed to allocate");
+        if (_client) {
+          _client->abort();
+        }
+      }
+    } else {
+      uint8_t backup = data[len];
+      data[len] = 0;
+      _server->_handleEvent(this, WS_EVT_DATA, (void *)&_pinfo, data, len);
+      data[len] = backup;
+    }
+  } else {
+    _server->_handleEvent(this, WS_EVT_DATA, (void *)&_pinfo, data, len);
   }
 }
 

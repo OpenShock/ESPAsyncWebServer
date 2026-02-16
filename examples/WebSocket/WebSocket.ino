@@ -49,6 +49,11 @@ static const char *htmlContent PROGMEM = R"(
       ws.send(message);
       console.log("WebSocket sent: " + message);
     }
+    setInterval(function() {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send("msg from browser");
+      }
+    }, 1000);
   </script>
 </body>
 </html>
@@ -76,9 +81,11 @@ void setup() {
   // Run in terminal 2: websocat ws://192.168.4.1/ws => should stream data
   // Run in terminal 3: websocat ws://192.168.4.1/ws => should fail:
   //
-  // To send a message to the WebSocket server:
+  // To send a message to the WebSocket server (\n at the end):
+  // > echo "Hello!" | websocat ws://192.168.4.1/ws
   //
-  // echo "Hello!" | websocat ws://192.168.4.1/ws
+  // Generates 2001 characters (\n at the end) to cause a fragmentation (over TCP MSS):
+  // > openssl rand -hex 1000 | websocat ws://192.168.4.1/ws
   //
   ws.onEvent([](AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
     (void)len;
@@ -101,13 +108,49 @@ void setup() {
 
     } else if (type == WS_EVT_DATA) {
       AwsFrameInfo *info = (AwsFrameInfo *)arg;
-      Serial.printf("index: %" PRIu64 ", len: %" PRIu64 ", final: %" PRIu8 ", opcode: %" PRIu8 "\n", info->index, info->len, info->final, info->opcode);
-      String msg = "";
+      Serial.printf(
+        "index: %" PRIu64 ", len: %" PRIu64 ", final: %" PRIu8 ", opcode: %" PRIu8 ", framelen: %d\n", info->index, info->len, info->final,
+        info->message_opcode, len
+      );
+
+      // complete frame
       if (info->final && info->index == 0 && info->len == len) {
-        if (info->opcode == WS_TEXT) {
-          data[len] = 0;
+        if (info->message_opcode == WS_TEXT) {
           Serial.printf("ws text: %s\n", (char *)data);
           client->ping();
+        }
+
+      } else {
+        // incomplete frame
+        if (info->index == 0) {
+          if (info->num == 0) {
+            Serial.printf(
+              "ws[%s][%" PRIu32 "] [%" PRIu32 "] MSG START %s\n", server->url(), client->id(), info->num, (info->message_opcode == WS_TEXT) ? "text" : "binary"
+            );
+          }
+          Serial.printf("ws[%s][%" PRIu32 "] [%" PRIu32 "] FRAME START len=%" PRIu64 "\n", server->url(), client->id(), info->num, info->len);
+        }
+
+        Serial.printf(
+          "ws[%s][%" PRIu32 "] [%" PRIu32 "] FRAME %s, index=%" PRIu64 ", len=%" PRIu32 "]: ", server->url(), client->id(), info->num,
+          (info->message_opcode == WS_TEXT) ? "text" : "binary", info->index, (uint32_t)len
+        );
+
+        if (info->message_opcode == WS_TEXT) {
+          Serial.printf("%s\n", (char *)data);
+        } else {
+          for (size_t i = 0; i < len; i++) {
+            Serial.printf("%02x ", data[i]);
+          }
+          Serial.printf("\n");
+        }
+
+        if ((info->index + len) == info->len) {
+          Serial.printf("ws[%s][%" PRIu32 "] [%" PRIu32 "] FRAME END\n", server->url(), client->id(), info->num);
+
+          if (info->final) {
+            Serial.printf("ws[%s][%" PRIu32 "] [%" PRIu32 "] MSG END\n", server->url(), client->id(), info->num);
+          }
         }
       }
     }
@@ -130,24 +173,39 @@ void setup() {
   server.begin();
 }
 
-static uint32_t lastWS = 0;
-static uint32_t deltaWS = 100;
+#ifdef ESP32
+static const uint32_t deltaWS = 50;
+#else
+static const uint32_t deltaWS = 200;
+#endif
 
+static uint32_t lastWS = 0;
 static uint32_t lastHeap = 0;
 
 void loop() {
   uint32_t now = millis();
 
   if (now - lastWS >= deltaWS) {
-    ws.printfAll("kp%.4f", (10.0 / 3.0));
+    ws.printfAll("kp:%.4f", (10.0 / 3.0));
     lastWS = millis();
   }
 
-  if (now - lastHeap >= 2000) {
+  if (now - lastHeap >= 5000) {
     Serial.printf("Connected clients: %u / %u total\n", ws.count(), ws.getClients().size());
 
     // this can be called to also set a soft limit on the number of connected clients
     ws.cleanupClients(2);  // no more than 2 clients
+
+    String random;
+    random.reserve(8192);
+    for (size_t i = 0; i < 8192; i++) {
+      random += "x";
+    }
+    ws.textAll(random);
+
+    // ping twice (2 control frames)
+    ws.pingAll();
+    ws.pingAll();
 
 #ifdef ESP32
     Serial.printf("Free heap: %" PRIu32 "\n", ESP.getFreeHeap());
