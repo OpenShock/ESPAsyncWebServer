@@ -35,7 +35,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Python
         uses: actions/setup-python@v6
         with:
@@ -47,13 +47,13 @@ jobs:
           enable-cache: false
       - name: Install platformio
         run: |
-          uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.18.zip
+          uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
 
-      - name: Build Examples
+      - name: Build Arduino Examples
         run: |
           for i in AsyncResponseStream Auth Headers; do
             echo "============================================================="
-            echo "Building examples/$i..."
+            echo "Building examples/arduino/$i..."
             echo "============================================================="
-            PLATFORMIO_SRC_DIR=examples/$i PIO_BOARD=${{ matrix.board }} pio run -e ci-libretiny
+            PLATFORMIO_SRC_DIR=examples/arduino/$i PIO_BOARD=${{ matrix.board }} pio run -e ci-libretiny
           done

@@ -40,7 +40,7 @@ I recommend to use the official API `AsyncWebSocketMessageBuffer` to retain furt
 The server includes a web socket plugin which lets you define different WebSocket locations to connect to
 without starting another listening service or using different port
 
-See the [WebSocket example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/WebSocket/WebSocket.ino) and [WebSocketEasy example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/WebSocketEasy/WebSocketEasy.ino).
+See the [WebSocket example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/arduino/WebSocket/WebSocket.ino) and [WebSocketEasy example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/arduino/WebSocketEasy/WebSocketEasy.ino).
 
 ### Async WebSocket Event
 
@@ -169,6 +169,38 @@ client->binary((uint8_t*)binary, (size_t)len);
 //send binary from PROGMEM
 const uint8_t flash_binary[] PROGMEM = { 0x01, 0x02, 0x03, 0x04 };
 client->binary(flash_binary, 4);
+```
+
+### Queue full behavior: `setCloseClientOnQueueFull()`
+
+When a client cannot keep up, outgoing WebSocket messages are queued.
+If the queue reaches `WS_MAX_QUEUED_MESSAGES`, new messages are either discarded or the client is closed, depending on this setting.
+
+```cpp
+client->setCloseClientOnQueueFull(bool close);
+```
+
+- `close == false` (default in this library): discard new messages when the queue is full.
+- `close == true`: close the client when the queue is full.
+
+We recommend using `false`.
+
+When the queue starts filling, prefer reducing your sending rate and/or explicitly closing the client according to your application policy.
+
+We do not recommend using `true` because it can lead to a crash under certain circumstances.
+
+You can combine this with:
+
+- `client->queueIsFull()`
+- `client->queueLen()`
+- `ws.availableForWrite(clientId)` and `ws.availableForWriteAll()`
+
+Typical usage is to set the policy when the client connects:
+
+```cpp
+if (type == WS_EVT_CONNECT) {
+  client->setCloseClientOnQueueFull(false); // default behavior
+}
 ```
 
 ### Direct access to web socket message buffer

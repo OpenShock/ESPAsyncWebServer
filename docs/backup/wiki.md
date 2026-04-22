@@ -7,7 +7,6 @@
 [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](code_of_conduct.md)
 
 [![GitHub latest commit](https://badgen.net/github/last-commit/ESP32Async/ESPAsyncWebServer)](https://GitHub.com/ESP32Async/ESPAsyncWebServer/commit/)
-[![Gitpod Ready-to-Code](https://img.shields.io/badge/Gitpod-Ready--to--Code-blue?logo=gitpod)](https://gitpod.io/#https://github.com/ESP32Async/ESPAsyncWebServer)
 
 [![ESP32Async Discord Server](https://img.shields.io/badge/Discord-ESP32Async-blue?logo=discord)](https://discord.gg/X7zpGdyUcY)
 
@@ -376,7 +375,7 @@ Request Continuation is the ability to pause the processing of a request (the ac
 
 This is a common supported use case amongst web servers.
 
-A usage example can be found in the example called [RequestContinuation.ino](https://github.com/ESP32Async/ESPAsyncWebServer/blob/main/examples/RequestContinuation/RequestContinuation.ino)
+A usage example can be found in the example called [RequestContinuation.ino](https://github.com/ESP32Async/ESPAsyncWebServer/blob/main/examples/arduino/RequestContinuation/RequestContinuation.ino)
 
 In the handler receiving the request, just execute:
 
@@ -1887,7 +1886,7 @@ void setup(){
   }, onUpload);
 
   // send a file when /index is requested
-  server.on("/index", HTTP_ANY, [](AsyncWebServerRequest *request){
+  server.on("/index", HTTP_ALL, [](AsyncWebServerRequest *request){
     request->send(SPIFFS, "/index.htm");
   });
 
@@ -1974,10 +1973,10 @@ public :
 
   void begin(){
     // attach global request handler
-    classWebServer.on("/example", HTTP_ANY, handleRequest);
+    classWebServer.on("/example", HTTP_ALL, handleRequest);
 
     // attach class request handler
-    classWebServer.on("/example", HTTP_ANY, std::bind(&WebClass::classRequest, this, std::placeholders::_1));
+    classWebServer.on("/example", HTTP_ALL, std::bind(&WebClass::classRequest, this, std::placeholders::_1));
   }
 };
 
@@ -1986,10 +1985,10 @@ WebClass webClassInstance;
 
 void setup() {
   // attach global request handler
-  globalWebServer.on("/example", HTTP_ANY, handleRequest);
+  globalWebServer.on("/example", HTTP_ALL, handleRequest);
 
   // attach class request handler
-  globalWebServer.on("/example", HTTP_ANY, std::bind(&WebClass::classRequest, webClassInstance, std::placeholders::_1));
+  globalWebServer.on("/example", HTTP_ALL, std::bind(&WebClass::classRequest, webClassInstance, std::placeholders::_1));
 }
 
 void loop() {

@@ -27,7 +27,7 @@ static String generateEventMessage(const char *message, const char *event, uint3
 
   if (!str.reserve(len)) {
     async_ws_log_e("Failed to allocate");
-    return emptyString;
+    return asyncsrv::emptyString;
   }
 
   if (reconnect) {
@@ -191,23 +191,20 @@ AsyncEventSourceClient::AsyncEventSourceClient(AsyncWebServerRequest *request, A
 }
 
 AsyncEventSourceClient::~AsyncEventSourceClient() {
-#ifdef ESP32
-  std::lock_guard<std::recursive_mutex> lock(_lockmq);
-#endif
+  // Protect message queue access (size checks and modifications) which is not thread-safe.
+  asyncsrv::lock_guard_type lock(_lockmq);
   _messageQueue.clear();
   close();
 }
 
 bool AsyncEventSourceClient::_queueMessage(const char *message, size_t len) {
+  // Protect message queue access (size checks and modifications) which is not thread-safe.
+  asyncsrv::lock_guard_type lock(_lockmq);
+
   if (_messageQueue.size() >= SSE_MAX_QUEUED_MESSAGES) {
-    async_ws_log_e("Event message queue overflow: discard message");
+    async_ws_log_w("Event message queue overflow: discard message");
     return false;
   }
-
-#ifdef ESP32
-  // length() is not thread-safe, thus acquiring the lock before this call..
-  std::lock_guard<std::recursive_mutex> lock(_lockmq);
-#endif
 
   if (_client) {
     _messageQueue.emplace_back(message, len);
@@ -230,15 +227,13 @@ bool AsyncEventSourceClient::_queueMessage(const char *message, size_t len) {
 }
 
 bool AsyncEventSourceClient::_queueMessage(AsyncEvent_SharedData_t &&msg) {
+  // Protect message queue access (size checks and modifications) which is not thread-safe.
+  asyncsrv::lock_guard_type lock(_lockmq);
+
   if (_messageQueue.size() >= SSE_MAX_QUEUED_MESSAGES) {
-    async_ws_log_e("Event message queue overflow: discard message");
+    async_ws_log_w("Event message queue overflow: discard message");
     return false;
   }
-
-#ifdef ESP32
-  // length() is not thread-safe, thus acquiring the lock before this call..
-  std::lock_guard<std::recursive_mutex> lock(_lockmq);
-#endif
 
   if (_client) {
     _messageQueue.emplace_back(std::move(msg));
@@ -260,10 +255,8 @@ bool AsyncEventSourceClient::_queueMessage(AsyncEvent_SharedData_t &&msg) {
 }
 
 void AsyncEventSourceClient::_onAck(size_t len __attribute__((unused)), uint32_t time __attribute__((unused))) {
-#ifdef ESP32
-  // Same here, acquiring the lock early
-  std::lock_guard<std::recursive_mutex> lock(_lockmq);
-#endif
+  // Protect message queue access (size checks and modifications) which is not thread-safe.
+  asyncsrv::lock_guard_type lock(_lockmq);
 
   // adjust in-flight len
   if (len < _inflight) {
@@ -288,11 +281,9 @@ void AsyncEventSourceClient::_onAck(size_t len __attribute__((unused)), uint32_t
 }
 
 void AsyncEventSourceClient::_onPoll() {
+  // Protect message queue access (size checks and modifications) which is not thread-safe.
+  asyncsrv::lock_guard_type lock(_lockmq);
   if (_messageQueue.size()) {
-#ifdef ESP32
-    // Same here, acquiring the lock early
-    std::lock_guard<std::recursive_mutex> lock(_lockmq);
-#endif
     _runQueue();
   }
 }
@@ -367,13 +358,13 @@ void AsyncEventSource::_addClient(AsyncEventSourceClient *client) {
   if (!client) {
     return;
   }
-#ifdef ESP32
-  std::lock_guard<std::recursive_mutex> lock(_client_queue_lock);
-#endif
-  _clients.emplace_back(client);
+
   if (_connectcb) {
     _connectcb(client);
   }
+
+  asyncsrv::lock_guard_type lock(_client_queue_lock);
+  _clients.emplace_back(client);
 
   _adjust_inflight_window();
 }
@@ -382,9 +373,7 @@ void AsyncEventSource::_handleDisconnect(AsyncEventSourceClient *client) {
   if (_disconnectcb) {
     _disconnectcb(client);
   }
-#ifdef ESP32
-  std::lock_guard<std::recursive_mutex> lock(_client_queue_lock);
-#endif
+  asyncsrv::lock_guard_type lock(_client_queue_lock);
   for (auto i = _clients.begin(); i != _clients.end(); ++i) {
     if (i->get() == client) {
       _clients.erase(i);
@@ -398,9 +387,7 @@ void AsyncEventSource::close() {
   // While the whole loop is not done, the linked list is locked and so the
   // iterator should remain valid even when AsyncEventSource::_handleDisconnect()
   // is called very early
-#ifdef ESP32
-  std::lock_guard<std::recursive_mutex> lock(_client_queue_lock);
-#endif
+  asyncsrv::lock_guard_type lock(_client_queue_lock);
   for (const auto &c : _clients) {
     if (c->connected()) {
       /**
@@ -417,9 +404,7 @@ void AsyncEventSource::close() {
 size_t AsyncEventSource::avgPacketsWaiting() const {
   size_t aql = 0;
   uint32_t nConnectedClients = 0;
-#ifdef ESP32
-  std::lock_guard<std::recursive_mutex> lock(_client_queue_lock);
-#endif
+  asyncsrv::lock_guard_type lock(_client_queue_lock);
   for (const auto &c : _clients) {
     if (c->connected()) {
       aql += c->packetsWaiting();
@@ -431,9 +416,7 @@ size_t AsyncEventSource::avgPacketsWaiting() const {
 
 AsyncEventSource::SendStatus AsyncEventSource::send(const char *message, const char *event, uint32_t id, uint32_t reconnect) {
   AsyncEvent_SharedData_t shared_msg = std::make_shared<String>(generateEventMessage(message, event, id, reconnect));
-#ifdef ESP32
-  std::lock_guard<std::recursive_mutex> lock(_client_queue_lock);
-#endif
+  asyncsrv::lock_guard_type lock(_client_queue_lock);
   size_t hits = 0;
   size_t miss = 0;
   for (const auto &c : _clients) {
@@ -449,9 +432,7 @@ AsyncEventSource::SendStatus AsyncEventSource::send(const char *message, const c
 }
 
 size_t AsyncEventSource::count() const {
-#ifdef ESP32
-  std::lock_guard<std::recursive_mutex> lock(_client_queue_lock);
-#endif
+  asyncsrv::lock_guard_type lock(_client_queue_lock);
   size_t n_clients{0};
   for (const auto &i : _clients) {
     if (i->connected()) {

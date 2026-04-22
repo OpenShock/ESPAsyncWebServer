@@ -24,6 +24,12 @@
 
 namespace asyncsrv {
 
+#ifdef ARDUINO
+using ::emptyString;
+#else
+inline const String emptyString{};
+#endif
+
 static constexpr const char empty[] = "";
 
 static constexpr const char T__opaque[] = "\", opaque=\"";
@@ -104,7 +110,6 @@ static constexpr const char T_WWW_AUTH[] = "WWW-Authenticate";
 static constexpr const char T_X_Expected_Entity_Length[] = "X-Expected-Entity-Length";
 
 // HTTP Methods
-static constexpr const char T_ANY[] = "ANY";
 static constexpr const char T_GET[] = "GET";
 static constexpr const char T_POST[] = "POST";
 static constexpr const char T_PUT[] = "PUT";
@@ -120,6 +125,16 @@ static constexpr const char T_MKCOL[] = "MKCOL";
 static constexpr const char T_MOVE[] = "MOVE";
 static constexpr const char T_COPY[] = "COPY";
 static constexpr const char T_UNKNOWN[] = "UNKNOWN";
+static constexpr const char T_CONNECT[] = "CONNECT";
+static constexpr const char T_TRACE[] = "TRACE";
+static constexpr const char T_SEARCH[] = "SEARCH";
+static constexpr const char T_BIND[] = "BIND";
+static constexpr const char T_REBIND[] = "REBIND";
+static constexpr const char T_UNBIND[] = "UNBIND";
+static constexpr const char T_ACL[] = "ACL";
+static constexpr const char T_PURGE[] = "PURGE";
+static constexpr const char T_LINK[] = "LINK";
+static constexpr const char T_UNLINK[] = "UNLINK";
 
 // Req content types
 static constexpr const char T_RCT_NOT_USED[] = "RCT_NOT_USED";
