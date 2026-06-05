@@ -42,7 +42,7 @@ jobs:
       - name: Clone AsyncTCP, Arduino FS headers, lwIP and lwIP contrib
         run: |
           git clone --depth 1 https://github.com/MitchBradley/PosixAsyncTCP .ci/asynctcp
-          git clone --depth 1 https://github.com/espressif/arduino-esp32.git .ci/arduino-esp32
+          git clone --depth 1 --branch "3.3.8"  https://github.com/espressif/arduino-esp32.git .ci/arduino-esp32
 
       - name: Build with Arduino-Emulator
         run: |
