@@ -609,6 +609,20 @@ bool AsyncWebServerRequest::_parseReqHeader() {
 #endif
         }
 
+        // CWE-190 / DoS fix: final safety net.  The per-branch checks above
+        // cover the token path (bvlen == 0 || bvlen > 70) and the quoted-string
+        // path (> 70 inside the loop), but an empty quoted-string (boundary="")
+        // closes immediately with _boundary still empty and is not rejected
+        // by either branch.  Reject it here before _isMultipart is set, so an
+        // empty boundary never reaches the multipart body parser (where it
+        // would cause --\r\n to be accepted as a delimiter).
+        if (_boundary.length() == 0 || _boundary.length() > 70) {
+          async_ws_log_d("Invalid multipart boundary length (%u), aborting", _boundary.length());
+          _parseState = PARSE_REQ_FAIL;
+          abort();
+          return true;
+        }
+
         _isMultipart = true;
       }
     } else if (name.equalsIgnoreCase(T_Content_Length) || name.equalsIgnoreCase(T_X_Expected_Entity_Length)) {

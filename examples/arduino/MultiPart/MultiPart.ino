@@ -13,6 +13,7 @@
     - "x-boundary=" prefix must NOT be matched
     - Boundary longer than 70 chars → rejected (400)
     - Empty boundary → rejected (400)
+    - Empty quoted-string boundary (boundary="") → rejected (400)
     - Unterminated quoted-string → rejected (400)
 
   ── /upload endpoint (all platforms) ──────────────────────────────────────────
@@ -75,6 +76,14 @@ curl -v \
 curl -v \
   -H 'Content-Type: multipart/form-data; boundary="unterminated' \
   --data-binary $'--unterminated\r\nContent-Disposition: form-data; name="field"\r\n\r\nhello\r\n--unterminated--\r\n' \
+  http://192.168.4.1/upload
+
+  10. Empty quoted-string boundary → abort (must not be accepted as an empty
+      delimiter that matches "--\r\n"):
+
+curl -v \
+  -H 'Content-Type: multipart/form-data; boundary=""' \
+  --data-binary $'--\r\nContent-Disposition: form-data; name="field"\r\n\r\nhello\r\n----\r\n' \
   http://192.168.4.1/upload
 
   ── /flash endpoint (ESP32 only) ──────────────────────────────────────────────
