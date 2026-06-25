@@ -464,6 +464,20 @@ bool AsyncWebServerRequest::_parseChunkedBytes(uint8_t *buf, size_t len) {
   return false;
 }
 
+static inline const char *skip_ows(const char *p, const char *end) {
+  while (p < end && (*p == ' ' || *p == '\t')) {
+    p++;
+  }
+  return p;
+}
+
+static inline const char *rtrim_ows(const char *start, const char *end) {
+  while (end > start && (*(end - 1) == ' ' || *(end - 1) == '\t')) {
+    end--;
+  }
+  return end;
+}
+
 bool AsyncWebServerRequest::_parseReqHeader() {
   AsyncWebHeader header = AsyncWebHeader::parse(_temp);
   if (header) {
@@ -476,49 +490,45 @@ bool AsyncWebServerRequest::_parseReqHeader() {
       // Trim _contentType defensively; AsyncWebHeader::parse now strips all
       // leading OWS per RFC 7230, but trim() guards against any future change.
       _contentType.trim();
-      // Media types are case-insensitive (RFC 2045 §5.1), so lowercase the
-      // entire header value once and reuse it for all subsequent searches.
-      String lowcase(value);
-      lowcase.toLowerCase();
-      if (lowcase.startsWith(T_MULTIPART_)) {
-        // Case-insensitive, quote-aware search for the boundary parameter.
-        // We scan forward tracking quoted-string state so that a 'boundary='
-        // substring inside a quoted parameter value (e.g. foo="x; boundary=y")
-        // is never mistaken for the real parameter delimiter.  A ';' inside a
-        // quoted-string is not a parameter separator per RFC 2045 §5.1.
-        // We also require 'boundary=' to be immediately preceded by ';' (with
-        // optional OWS) so that e.g. 'x-boundary=' is not matched.
-        int bpos = -1;
-        bool inQuotes = false;
-        for (int i = 0; i < (int)lowcase.length(); i++) {
-          char c = lowcase.charAt(i);
-          if (inQuotes) {
-            if (c == '\\' && i + 1 < (int)lowcase.length()) {
-              i++;  // skip quoted-pair — the escaped character cannot terminate the quoted-string
-            } else if (c == '"') {
-              inQuotes = false;
-            }
-          } else {
-            if (c == '"') {
-              inQuotes = true;
-            } else if (c == ';') {
-              // Skip OWS after the ';' and check for 'boundary='
-              int j = i + 1;
-              while (j < (int)lowcase.length() && (lowcase.charAt(j) == ' ' || lowcase.charAt(j) == '\t')) {
-                j++;
+      if (strncasecmp(value.c_str(), T_MULTIPART_, sizeof(T_MULTIPART_) - 1) == 0) {
+        // Delimiter-structured, quote-aware search for the boundary parameter.
+        // We scan parameter by parameter (';'-delimited) so that 'boundary='
+        // inside a quoted value (e.g. foo="x; boundary=y") is never mistaken
+        // for the real parameter.  A ';' inside a quoted-string is not a
+        // parameter separator per RFC 2045 §5.1.
+        const char *p = value.c_str();
+        const char *end = p + value.length();
+
+        // Advance past the media-type to the first ';'
+        while (p < end && *p != ';') {
+          p++;
+        }
+
+        const char *bvdata = nullptr;
+        while (p < end) {
+          p++;  // consume ';'
+          p = skip_ows(p, end);
+          if ((size_t)(end - p) > T_BOUNDARY_LEN && strncasecmp(p, T_BOUNDARY, T_BOUNDARY_LEN) == 0) {
+            bvdata = p + T_BOUNDARY_LEN;
+            break;
+          }
+          // Advance to the next ';', skipping over any quoted-string value
+          while (p < end && *p != ';') {
+            if (*p++ == '"') {
+              while (p < end && *p != '"') {
+                if (*p == '\\' && p + 1 < end) {
+                  p++;  // skip quoted-pair
+                }
+                p++;
               }
-              // Use strncmp on the raw C string to avoid a heap allocation
-              // from String::substring() — this code runs on attacker-controlled
-              // input in a scan loop, so zero-allocation is preferred.
-              if ((size_t)j + T_BOUNDARY_LEN <= lowcase.length() && std::strncmp(lowcase.c_str() + j, T_BOUNDARY, T_BOUNDARY_LEN) == 0) {
-                bpos = j;
-                break;
+              if (p < end) {
+                p++;  // skip closing '"'
               }
             }
           }
         }
 
-        if (bpos < 0) {
+        if (bvdata == nullptr) {
           // No valid boundary parameter found — cannot parse multipart body.
           async_ws_log_d("Missing multipart boundary parameter, aborting");
           _parseState = PARSE_REQ_FAIL;
@@ -526,72 +536,86 @@ bool AsyncWebServerRequest::_parseReqHeader() {
           return true;
         }
 
-        // Extract the boundary value that follows "boundary=" and strip leading/
-        // trailing whitespace.  The value may be either a token or a
-        // quoted-string (RFC 2045 §5.1 / RFC 2046 §5.1).
-        _boundary = value.substring(bpos + (int)T_BOUNDARY_LEN);
-        _boundary.trim();
+        // Strip leading OWS after 'boundary=' — non-RFC but seen in the wild.
+        bvdata = skip_ows(bvdata, end);
 
-        if (_boundary.startsWith("\"")) {
-          // Quoted-string form: scan forward from position 1 for the closing
-          // double-quote.  A quote is escaped only when preceded by an ODD
-          // number of consecutive backslashes (e.g. \" is escaped, \\" is not
-          // because the two backslashes escape each other, leaving the quote
-          // unescaped).  Checking only the immediately preceding character
-          // would mishandle the \\" case.
-          int endQuote = 1;
-          while (true) {
-            endQuote = _boundary.indexOf('"', endQuote);
-            if (endQuote < 0) {
-              break;  // string ran out — unterminated quote
-            }
-            // Count consecutive backslashes immediately before this quote.
-            int backslashes = 0;
-            while (endQuote - 1 - backslashes >= 0 && _boundary.charAt(endQuote - 1 - backslashes) == '\\') {
-              backslashes++;
-            }
-            if (backslashes % 2 == 0) {
-              break;  // even number of backslashes → quote is real closing quote
-            }
-            endQuote++;  // odd number → quote is escaped, keep scanning
+        // Clear any previous value — duplicate Content-Type headers must not
+        // concatenate into the boundary string.
+        _boundary = String();
+
+        if (bvdata < end && *bvdata == '"') {
+          // Quoted-string: unescape quoted-pairs into _boundary directly.
+          bvdata++;  // skip opening '"'
+          // Reserve at most 70 chars — the RFC 2046 §5.1 maximum — rather than
+          // the full (attacker-controlled) remaining suffix length.
+          if (!_boundary.reserve(70)) {
+            async_ws_log_e("Failed to allocate");
+            _parseState = PARSE_REQ_FAIL;
+            abort();
+            return true;
           }
-          if (endQuote < 0) {
+          bool closed = false;
+          while (bvdata < end) {
+            char c = *bvdata++;
+            if (c == '\\' && bvdata < end) {
+              _boundary += *bvdata++;  // quoted-pair: keep only the escaped char
+            } else if (c == '"') {
+              closed = true;
+              break;
+            } else {
+              _boundary += c;
+            }
+            // CWE-190 / DoS fix: RFC 2046 §5.1 limits boundary strings to 70 characters.
+            if (_boundary.length() > 70) {
+              async_ws_log_d("Invalid multipart boundary length (%u), aborting", _boundary.length());
+              _parseState = PARSE_REQ_FAIL;
+              abort();
+              return true;
+            }
+          }
+          if (!closed) {
             // Opening quote was never closed — malformed header.
             async_ws_log_d("Invalid multipart boundary (unterminated quote), aborting");
             _parseState = PARSE_REQ_FAIL;
             abort();
             return true;
           }
-          // Strip the surrounding quotes; content between them is the boundary.
-          _boundary = _boundary.substring(1, endQuote);
-
-          // Unescape quoted-pair sequences so the boundary matches the actual bytes on the wire.
-          String unescaped;
-          unescaped.reserve(_boundary.length());
-          for (size_t i = 0; i < _boundary.length(); ++i) {
-            char c = _boundary.charAt(i);
-            if (c == '\\' && (i + 1) < _boundary.length()) {
-              c = _boundary.charAt(++i);
-            }
-            unescaped += c;
-          }
-          _boundary = unescaped;
         } else {
-          // Token form: the value ends at the next ';' (start of the next
-          // parameter) or at the end of the header field.
-          int semi = _boundary.indexOf(';');
-          if (semi >= 0) {
-            _boundary = _boundary.substring(0, semi);
+          // Token form: value ends at the next ';' or end of string.
+          const char *tok_end = bvdata;
+          while (tok_end < end && *tok_end != ';') {
+            tok_end++;
           }
-          _boundary.trim();
+          tok_end = rtrim_ows(bvdata, tok_end);
+          size_t bvlen = (size_t)(tok_end - bvdata);
+          // CWE-190 / DoS fix: RFC 2046 §5.1 limits boundary strings to 70 characters.
+          if (bvlen == 0 || bvlen > 70) {
+            async_ws_log_d("Invalid multipart boundary length (%u), aborting", (unsigned)bvlen);
+            _parseState = PARSE_REQ_FAIL;
+            abort();
+            return true;
+          }
+#ifdef ESP8266
+          {
+            // ESP8266 Arduino String lacks String(const char*, size_t).
+            // bvlen <= 70 is guaranteed above, so a stack buffer is safe.
+            char buf[71];
+            memcpy(buf, bvdata, bvlen);
+            buf[bvlen] = '\0';
+            _boundary = String(buf);
+          }
+#else
+          _boundary = String(bvdata, (unsigned int)bvlen);
+#endif
         }
 
-        // CWE-190 / DoS fix: RFC 2046 §5.1 limits boundary strings to 70
-        // characters.  _boundaryPosition was formerly uint8_t, so a boundary
-        // of exactly 256 bytes would overflow the counter to 0, preventing the
-        // BOUNDARY_OR_DATA loop from ever reaching the end of the boundary and
-        // causing unbounded CPU consumption (watchdog reset on ESP32/ESP8266).
-        // Reject boundaries outside the valid range before any parsing begins.
+        // CWE-190 / DoS fix: final safety net.  The per-branch checks above
+        // cover the token path (bvlen == 0 || bvlen > 70) and the quoted-string
+        // path (> 70 inside the loop), but an empty quoted-string (boundary="")
+        // closes immediately with _boundary still empty and is not rejected
+        // by either branch.  Reject it here before _isMultipart is set, so an
+        // empty boundary never reaches the multipart body parser (where it
+        // would cause --\r\n to be accepted as a delimiter).
         if (_boundary.length() == 0 || _boundary.length() > 70) {
           async_ws_log_d("Invalid multipart boundary length (%u), aborting", _boundary.length());
           _parseState = PARSE_REQ_FAIL;
