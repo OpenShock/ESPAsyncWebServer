@@ -725,6 +725,13 @@ void AsyncWebServerRequest::_parsePlainPostChar(uint8_t data) {
 }
 
 void AsyncWebServerRequest::_handleUploadByte(uint8_t data, bool last) {
+  // CWE-476 defense-in-depth: never write through a NULL buffer pointer.
+  // The primary fix resets _itemIsFile when the buffer is freed, but this guard
+  // protects against any future code path that might reach here without one.
+  if (_itemBuffer == NULL) {
+    return;
+  }
+
   _itemBuffer[_itemBufferIndex++] = data;
 
   if (last || _itemBufferIndex == RESPONSE_STREAM_BUFFER_SIZE) {
@@ -917,6 +924,12 @@ void AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last) {
         });
         free(_itemBuffer);
         _itemBuffer = NULL;
+        // CWE-476 fix: _itemIsFile must be cleared when the buffer is freed.
+        // Otherwise, if the next byte does not confirm a clean boundary close
+        // (e.g. '--<boundary>' appeared in the file data by coincidence), the
+        // rewind logic in DASH3_OR_RETURN2 / EXPECT_FEED2 calls itemWriteByte()
+        // which dereferences the now-NULL _itemBuffer and crashes (DoS).
+        _itemIsFile = false;
       }
 
     } else {

@@ -86,6 +86,27 @@ curl -v \
   --data-binary $'--\r\nContent-Disposition: form-data; name="field"\r\n\r\nhello\r\n----\r\n' \
   http://192.168.4.1/upload
 
+  11. Boundary string appearing inside file data followed by a non-terminator
+      byte (GHSA-8m8p-vhxc-jmjw, CWE-476 NULL-pointer dereference / DoS):
+
+      Before the fix, the parser freed the upload buffer the moment it matched
+      "--<boundary>" inside the file body, but left _itemIsFile = true.  When
+      the next byte was neither the closing "--" nor a clean "\r\n", the rewind
+      logic called itemWriteByte() which dereferenced the now-NULL _itemBuffer
+      and crashed the device (StoreProhibited on ESP32 → reboot → DoS).
+
+      The boundary must appear after a \r\n in the file body so the parser
+      enters the boundary-matching state machine.  The byte after the match
+      must be neither \r nor - to fall into the rewind branch:
+
+curl -v \
+  -H 'Content-Type: multipart/form-data; boundary=X' \
+  --data-binary $'--X\r\nContent-Disposition: form-data; name="file"; filename="f.txt"\r\nContent-Type: text/plain\r\n\r\nhello\r\n--X\tjunk\r\n--X--\r\n' \
+  http://192.168.4.1/upload
+
+      After the fix the server must respond 200 and report the received
+      parameter(s) without crashing.
+
   ── /flash endpoint (ESP32 only) ──────────────────────────────────────────────
 
   Flash firmware and filesystem in one request:
